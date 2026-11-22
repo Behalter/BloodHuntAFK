@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Made while the bot runs
+bot.log
+debug/
+
+# Screenshots: only needed for cropping templates, and they show your in-game UID and name
+profiles/*/shots/
+/Screenshot*.png
+
+profiles/*/routines/
