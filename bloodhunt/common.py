@@ -1,5 +1,6 @@
 """Paths, logging and image-file helpers shared by every module."""
 import datetime
+import sys
 import time
 from pathlib import Path
 
@@ -7,7 +8,13 @@ import cv2
 import numpy as np
 import winsound
 
-HERE = Path(__file__).resolve().parent.parent      # the project folder, where BloodHuntAFK.py is
+# FROZEN: running as the exe (PyInstaller). Then the bot's folder is the exe's folder (profiles\, debug\,
+# bot.log and settings.py sit next to it), and BUNDLE is where PyInstaller unpacked the code and the
+# built-in copy of settings.py. From source, both are the project folder, where BloodHuntAFK.py is.
+FROZEN = bool(getattr(sys, "frozen", False))
+HERE = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
+BUNDLE = Path(getattr(sys, "_MEIPASS", HERE))
+CLI = "BloodHuntAFK-console.exe" if FROZEN else "python BloodHuntAFK.py"   # how to run a command, for messages
 PROFILES = HERE / "profiles"
 DEBUG = HERE / "debug"
 LOGFILE = HERE / "bot.log"

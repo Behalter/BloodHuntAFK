@@ -1,31 +1,24 @@
-"""The commands: run, snap, crop, check, keytest. `main()` reads the command line."""
+"""The commands: run, snap, crop, check, routine, keytest. `main()` reads the command line (no command
+opens the window, gui.py)."""
 import datetime
-import json
 import sys
 import time
 from pathlib import Path
 
 import cv2
 
-from . import bot, inputs, profiles, routines, vision, winapi
+from . import bot, guide, inputs, profiles, routines, settings_file, vision, winapi
 from . import settings as cfg
-from .common import DEBUG, PROFILES, beep, countdown, imread, imwrite, log, rel, stamp
+from .common import CLI, DEBUG, PROFILES, beep, countdown, imread, imwrite, log, rel, stamp
 
 
 # ── Picking the profile ─────────────────────────────────────────────────────
-def live_profile(name, create=False):
-    """The profile for the main screen as it is now. With create, --profile NAME that doesn't exist
-    yet is made for this screen size."""
-    size = vision.Screen().size
-    if create and name and not profiles.exists(name):
-        p = profiles.create(name, size)
-        print(f"Created profile {p} in {rel(p.dir)}")
-        return p
-    p = profiles.choose(name, size)
-    if p.screen != size:
-        sys.exit(f"Profile {p} doesn't fit your main screen, which is {size[0]}x{size[1]}. "
-                 "Set the game and screen back to that size, or pick another profile.")
-    return p
+def live_profile(name, create_new=False):
+    """The profile for the main screen as it is now, fitted to its size (images resized and click spots
+    scaled if it was cropped at another size of the same shape). create_new: with no profile for this
+    screen shape, make an empty one instead of stopping."""
+    return profiles.fitted(name, vision.Screen().size, create_new)
+
 
 
 def find_shot(shot):
@@ -51,6 +44,14 @@ def shot_profile(name, shot, img):
     return profiles.choose(None, (w, h))
 
 
+def fitted_to_shot(p, img):
+    """p fitted to the screenshot's size, or the reason it can't be."""
+    h, w = img.shape[:2]
+    if not profiles.same_shape(p.screen, (w, h)):
+        sys.exit(f"The screenshot is {w}x{h}, a different shape from profile {p}.")
+    return p.fit((w, h))
+
+
 def read_shot(shot):
     shot = find_shot(shot)
     img = imread(shot)
@@ -60,18 +61,31 @@ def read_shot(shot):
 
 
 # ── Commands ────────────────────────────────────────────────────────────────
-def run(name):
-    bot.run(live_profile(name))
+def run(name, **kw):
+    # The size read now is the terminal's. If the game runs at another resolution (exclusive
+    # fullscreen), the bot re-picks the profile for that size once the game is in front.
+    # kw: bot.run's keys / status / start_delay, from the window.
+    bot.run(live_profile(name), refit=lambda size: profiles.fitted(name, size), **kw)
 
 
 def snap(name):
-    p = live_profile(name, create=True)
+    p = live_profile(name, create_new=True)
     templates = p.templates()
     screen, keys = vision.Screen(), winapi.Hotkeys()
-    print(f"Snap mode, profile {p}: F8 = save a screenshot, F10 = quit.\n"
-          "Keep the mouse off any button you want to crop.")
+    print(f"Snap mode, profile {p}: F8 = save a screenshot to {rel(p.shots_dir)}, F10 = quit.\n"
+          "Each screenshot is scored with the profile's images, so you can see what's recognised.")
+    if p.scale:
+        print(f"\nThe profile's images are resized for your {p.screen[0]}x{p.screen[1]} screen. Screenshots taken "
+              f"now are for `check` (to see the scores); `crop` only takes {p.base[0]}x{p.base[1]} ones.")
+    else:
+        print(f"Keep the mouse off any button you want to crop.\n\n{guide.checklist(p)}\n\n"
+              "Then run `crop` (no name) to box them, one screenshot at a time.")
     while not keys.tapped(cfg.QUIT_KEY):
         if keys.tapped(cfg.PAUSE_KEY):
+            if screen.refresh() or screen.size != p.screen:     # a fullscreen game changed the resolution
+                p = live_profile(name, create_new=True)
+                templates = p.templates()
+                print(f"The screen is now {screen.size[0]}x{screen.size[1]}: profile {p}")
             frame = screen.grab()
             path = p.shots_dir / f"shot_{stamp()}.png"
             imwrite(path, frame)
@@ -100,6 +114,10 @@ def pick_shot(p):
         print("Type one of the numbers above.")
 
 
+def guided_crop(name):
+    guide.guided_crop(profiles.choose(name, vision.Screen().size))
+
+
 def crop(template_name, shot, name):
     if not vision.kind_of(template_name):
         sys.exit(f"Template names must start with {vision.PREFIXES}  (e.g. click_one_more_round)")
@@ -111,51 +129,38 @@ def crop(template_name, shot, name):
         shot, img = read_shot(pick_shot(p))
     h, w = img.shape[:2]
     if (w, h) != p.screen:
-        sys.exit(f"{shot.name} is {w}x{h}, but profile {p.name} is for {p.screen[0]}x{p.screen[1]}. "
-                 "Crop from a screenshot taken at the profile's size.")
-    sw, sh = winapi.screen_metrics()
-    scale = min(1.0, 0.85 * sw / w, 0.85 * sh / h)
-    win = f"{shot.name}: drag a box, Enter = save, C = cancel"
-    cv2.namedWindow(win, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(win, int(w * scale), int(h * scale))
-    x, y, bw, bh = cv2.selectROI(win, img, showCrosshair=False)
-    cv2.destroyAllWindows()
-    if bw < 16 or bh < 16:
-        print("Cancelled (or the box was under 16 px - grab a bigger area).")
+        sys.exit(f"{shot.name} is {w}x{h}. " + guide.not_cropped_here(p, w, h))
+    box = guide.select_box(img, f"{shot.name}: drag a box, Enter = save, C = cancel")
+    if not box:
         return
-    # Snap the box to the grid matching uses (every 2nd pixel at MATCH_SCALE 0.5). A box starting on an
-    # odd pixel is shrunk half a pixel out of step with the screen and scores noticeably lower.
-    step = max(1, round(1 / cfg.MATCH_SCALE))
-    x1, y1 = min(w, -(-(x + bw) // step) * step), min(h, -(-(y + bh) // step) * step)
-    x, y = x - x % step, y - y % step
-    bw, bh = x1 - x, y1 - y
-    out = p.templates_dir / f"{template_name}.png"
-    imwrite(out, img[y:y + bh, x:x + bw])
-    spot = {"x": int(x), "y": int(y), "w": int(bw), "h": int(bh), "screen_w": int(w), "screen_h": int(h)}
-    out.with_suffix(".json").write_text(json.dumps(spot), encoding="utf-8")
-    print(f"Saved {rel(out)} ({bw}x{bh}) and {out.stem}.json (where it was, so it's only looked "
+    out = guide.save_template(p, template_name, img, box)
+    print(f"Saved {rel(out)} ({box[2]}x{box[3]}) and {out.stem}.json (where it was, so it's only looked "
           f"for around there).\nRun `check {shot.name}` to see how it scores.")
 
 
 def check(shot, name):
     if shot:
         shot, frame = read_shot(shot)
-        p = shot_profile(name, shot, frame)
+        p = fitted_to_shot(shot_profile(name, shot, frame), frame)
         print(f"Checking {shot.name} with profile {p}")
     else:
-        p = live_profile(name)
-        countdown(5)
-        frame = vision.Screen().grab()
+        countdown(5)                       # read the size after it: a fullscreen game can change it
+        screen = vision.Screen()
+        p = profiles.fitted(name, screen.size)
+        frame = screen.grab()
         title, cls = winapi.foreground_info()
         verdict = "recognised as the game" if winapi.game_in_front() else \
-            "NOT recognised as the game - set GAME_TITLE / GAME_CLASS in bloodhunt\\settings.py to these"
+            (f"NOT recognised as the game - set GAME_TITLE / GAME_CLASS to these (in {rel(settings_file.PATH)}, "
+             "or the window's Advanced tab)")
         print(f"Profile {p}. Foreground window: title={title!r} class={cls!r} -> {verdict}")
     templates = p.templates()
     if not templates:
         print(f"No templates in {rel(p.templates_dir)} yet - use snap and crop first.")
         return
     vision.warn_size(templates, frame)
-    print(f"Scores ({cfg.MATCH_THRESHOLD} or higher counts as a match):")
+    print(f"Scores ({cfg.MATCH_THRESHOLD:g} or higher counts as a match"
+          + (f"; {cfg.MATCH_THRESHOLD_SCALED:g} for images resized to this screen" if any(t.resized for t in templates)
+             else "") + "):")
     out = frame.copy()
     for t, score, pos, counts in vision.report(frame, templates, p.click_at):
         if t.locked:                       # thin yellow box = the area it's searched in
@@ -179,11 +184,21 @@ def check(shot, name):
 
 def routine(args, name):
     """routine check [ROUTINE]: draw the steps on their screenshots.
-    routine run [ROUTINE]: do the routine once now (start it from the screen its first step is on)."""
+    routine run [ROUTINE]: do the routine once now (start it from the screen its first step is on).
+    routine record [ROUTINE]: the user does it by hand, and their clicks become its click spots."""
     action = args[0].lower() if args else ""
-    if action not in ("check", "run"):
-        sys.exit("Use:  routine check  (draws every step's click spot)   or   routine run  (does it once now)")
-    p = live_profile(name) if action == "run" else profiles.choose(name, vision.Screen().size)
+    if action not in ("check", "run", "record"):
+        sys.exit("Use:  routine check   (draws every step's click spot)\n"
+                 "      routine run     (does it once now)\n"
+                 "      routine record  (you do it by hand; your clicks become its click spots)")
+    if action == "record":
+        screen = vision.Screen()
+        p = profiles.choose(name, screen.size, create_new=True)
+        guide.record(p, args[1].lower() if len(args) > 1 else "storage_full", screen, winapi.Hotkeys())
+        return
+    # check draws on the profile's own step screenshots, so it uses the profile's own coordinates.
+    # run fits the profile to the screen after the countdown, when the game is in front.
+    p = profiles.choose(name, vision.Screen().size)
     if not p.routines:
         sys.exit(f"Profile {p} has no routines in {rel(p.dir / 'profile.json')}.")
     rname = (args[1] if len(args) > 1 else next(iter(p.routines)) if len(p.routines) == 1 else None)
@@ -194,15 +209,27 @@ def routine(args, name):
     if action == "check":
         for i, s in enumerate(steps, 1):
             what = (f"click {s['click'][0]},{s['click'][1]}" if "click" in s else
-                    f"type {s['type']}" if "type" in s else f"press {s['key']}")
+                    f"type {routines.describe_type(s['type'])}" if "type" in s else f"press {s['key']}")
             print(f"  {i:>2}. {s['name']:<18} {what:<16} then wait {s['wait']:g}s   ({s['shot']})")
         for path in routines.draw(p, rname):
             print(f"Saved {rel(path)}")
         print("Each magenta cross is where that step clicks, numbered in order.")
+        size = vision.Screen().size
+        if size != p.screen:
+            sx, sy = size[0] / p.screen[0], size[1] / p.screen[1]
+            print(f"These are {p.screen[0]}x{p.screen[1]} coordinates, as the profile was cropped. On your "
+                  f"{size[0]}x{size[1]} screen each one is multiplied by {sx:.3g}"
+                  + ("" if abs(sx - sy) < 1e-3 else f" across and {sy:.3g} down")
+                  + ", which keeps it on the same button.")
         return
     first = steps[0]
     countdown(5, f"Switch to the game, on the screen for step 1 ({first['name']})")
-    routines.run(rname, steps, vision.Screen(), winapi.Hotkeys())
+    screen = vision.Screen()               # read the size now: a fullscreen game can change it
+    p = profiles.fitted(name, screen.size)
+    if rname not in p.routines:
+        sys.exit(f"Profile {p} (for this {screen.size[0]}x{screen.size[1]} screen) has no {rname} routine.")
+    log(f"routine {rname} with profile {p}")
+    routines.run(rname, p.routines[rname], screen, winapi.Hotkeys())
 
 
 def keytest():
@@ -223,7 +250,7 @@ def take_profile_arg(args):
         if a.lower() == "--profile":
             name = next(it, None)
             if not name:
-                sys.exit("--profile needs a name, e.g. --profile 1080p")
+                sys.exit("--profile needs a name, e.g. --profile 16x9")
         elif a.lower().startswith("--profile="):
             name = a.split("=", 1)[1]
         else:
@@ -231,16 +258,38 @@ def take_profile_arg(args):
     return name, rest
 
 
-def main(help_text):
-    name, args = take_profile_arg(sys.argv[1:])
-    cmd = args[0].lower() if args else ""
+def load_settings():
+    """Read settings.py (next to the exe in the release, which can't import it) into the settings module.
+    It's read as plain values, never run, and a wrong value is reported with its line."""
     try:
+        if settings_file.ensure_file():
+            print(f"{rel(settings_file.PATH)} was missing, so the built-in one was put back.")
+        settings_file.load()
+    except settings_file.SettingsError as e:
+        sys.exit(f"Can't use {rel(settings_file.PATH)}: {e}")
+
+
+def main(help_text):
+    """No command: the window. --hold (added by the window's Setup tools, which open a command in its own
+    console window): wait for Enter at the end, so the window doesn't vanish with the last message."""
+    name, args = take_profile_arg(sys.argv[1:])
+    hold = any(a.lower() == "--hold" for a in args)
+    args = [a for a in args if a.lower() != "--hold"]
+    cmd = args[0].lower() if args else ""
+    if not cmd:
+        from . import gui
+        gui.main(name)
+        return
+    try:
+        load_settings()
         if cmd == "run":
             run(name)
         elif cmd == "snap":
             snap(name)
         elif cmd == "crop" and len(args) > 1:
             crop(args[1], args[2] if len(args) > 2 else None, name)
+        elif cmd == "crop":
+            guided_crop(name)
         elif cmd == "check":
             check(args[1] if len(args) > 1 else None, name)
         elif cmd == "keytest":
@@ -248,8 +297,19 @@ def main(help_text):
         elif cmd == "routine":
             routine(args[1:], name)
         else:
-            print(help_text)
+            print(help_text.replace("python BloodHuntAFK.py", CLI))
     except KeyboardInterrupt:
         log("stopped (Ctrl+C)")
     except inputs.FailSafeException:
         log("stopped: mouse was pushed into the top-left corner (failsafe)")
+    except SystemExit as e:
+        if not hold:
+            raise
+        if e.code not in (None, 0):
+            print(e.code)
+    finally:
+        if hold:
+            try:
+                input("\nPress Enter to close this window.")
+            except (EOFError, KeyboardInterrupt):
+                pass

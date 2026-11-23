@@ -7,6 +7,13 @@ __pycache__/
 bot.log
 debug/
 
+# Made by build.ps1 (PyInstaller)
+build/
+dist/
+
+# A half-written settings save (settings_file.save writes this, then swaps it in)
+settings.py.tmp
+
 # Screenshots: only needed for cropping templates, and they show your in-game UID and name
 profiles/*/shots/
 /Screenshot*.png

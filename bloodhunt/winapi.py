@@ -1,4 +1,4 @@
-"""Windows plumbing: finding and focusing the game window, idle time, and the F8/F10 hotkeys."""
+"""Windows plumbing: finding and focusing the game window, idle time, the F8/F10 hotkeys and key names."""
 import ctypes
 import time
 from ctypes import wintypes
@@ -17,8 +17,38 @@ user32.IsIconic.argtypes = [wintypes.HWND]
 user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.SetForegroundWindow.argtypes = [wintypes.HWND]
 user32.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
+user32.IsWindow.argtypes = [wintypes.HWND]
+user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
 user32.GetAsyncKeyState.restype = ctypes.c_short
 ctypes.windll.kernel32.GetTickCount.restype = wintypes.DWORD
+
+
+# Windows virtual-key codes -> key names, the same names pydirectinput takes (so the window can turn a key
+# press into ABILITY_KEY / HEAL_KEY, and show PAUSE_KEY etc. by name). Tk's event.keycode is this code.
+VK_NAMES = {0x08: "backspace", 0x09: "tab", 0x0D: "enter", 0x10: "shift", 0x11: "ctrl", 0x12: "alt",
+            0x13: "pause", 0x14: "capslock", 0x1B: "esc", 0x20: "space", 0x21: "pageup", 0x22: "pagedown",
+            0x23: "end", 0x24: "home", 0x25: "left", 0x26: "up", 0x27: "right", 0x28: "down", 0x2D: "insert",
+            0x2E: "delete", 0x6A: "multiply", 0x6B: "add", 0x6D: "subtract", 0x6E: "decimal", 0x6F: "divide",
+            0x90: "numlock", 0x91: "scrolllock", 0xA0: "shiftleft", 0xA1: "shiftright", 0xA2: "ctrlleft",
+            0xA3: "ctrlright", 0xA4: "altleft", 0xA5: "altright", 0xBA: ";", 0xBB: "=", 0xBC: ",", 0xBD: "-",
+            0xBE: ".", 0xBF: "/", 0xC0: "`", 0xDB: "[", 0xDC: "\\", 0xDD: "]", 0xDE: "'"}
+VK_NAMES.update({0x30 + i: str(i) for i in range(10)})
+VK_NAMES.update({0x41 + i: chr(ord("a") + i) for i in range(26)})
+VK_NAMES.update({0x70 + i: f"f{i + 1}" for i in range(12)})
+NAME_VKS = {v: k for k, v in VK_NAMES.items()}
+
+
+def pretty_key(name):
+    """A key name for people: F, F8, Space, Shift."""
+    if len(name) == 1 or (name[0] == "f" and name[1:].isdigit()):
+        return name.upper()
+    return name.capitalize()
+
+
+def key_name(vk):
+    """A virtual-key code for people: 0x77 -> F8."""
+    return pretty_key(VK_NAMES[vk]) if vk in VK_NAMES else f"key 0x{vk:02X}"
 
 
 def _text(fn, hwnd):
@@ -90,9 +120,59 @@ def user_idle_seconds():
     return ((ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
 
 
+def mouse_down():
+    """Is the primary mouse button held right now (the right one if the buttons are swapped)."""
+    vk = 0x02 if user32.GetSystemMetrics(23) else 0x01     # SM_SWAPBUTTON; VK_RBUTTON / VK_LBUTTON
+    return bool(user32.GetAsyncKeyState(vk) & 0x8000)
+
+
+def cursor_pos():
+    """Mouse position in desktop pixels (the main monitor's top-left is 0,0; others can be negative)."""
+    pt = wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(pt))
+    return pt.x, pt.y
+
+
+def is_admin():
+    """Running as administrator? The game ignores input from programs with lower rights."""
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
 def screen_metrics():
     """Primary screen size in pixels."""
     return user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+
+
+def virtual_screen():
+    """The whole desktop across every monitor -> (left, top, width, height). Left/top are negative when a
+    monitor sits left of or above the main one."""
+    return tuple(user32.GetSystemMetrics(i) for i in (76, 77, 78, 79))   # SM_X/YVIRTUALSCREEN, SM_CX/CYVIRTUALSCREEN
+
+
+_game_hwnd = None
+
+
+def game_area():
+    """Where the game's picture is on the desktop -> (left, top, width, height) of the inside of its window
+    (no title bar or borders), on whichever monitor it's on. None if the game window isn't found or is
+    minimised. Cheap: the window is looked up again only when the one found before is gone."""
+    global _game_hwnd
+    if not (cfg.GAME_TITLE or cfg.GAME_CLASS):
+        return None
+    if not (_game_hwnd and user32.IsWindow(_game_hwnd) and is_game(_game_hwnd)):
+        _game_hwnd = find_game_window()
+    hwnd = _game_hwnd
+    if not hwnd or user32.IsIconic(hwnd):
+        return None
+    r = wintypes.RECT()
+    if not user32.GetClientRect(hwnd, ctypes.byref(r)) or r.right <= 0 or r.bottom <= 0:
+        return None
+    pt = wintypes.POINT(0, 0)
+    user32.ClientToScreen(hwnd, ctypes.byref(pt))
+    return pt.x, pt.y, r.right, r.bottom
 
 
 class Hotkeys:
@@ -113,9 +193,13 @@ class Hotkeys:
         if self.tapped(cfg.QUIT_KEY):
             self.quit = True
         if self.tapped(cfg.PAUSE_KEY):
-            self.paused = not self.paused
-            log("paused - F8 to resume" if self.paused else "resumed")
-            beep(600 if self.paused else 1000)
+            self.toggle_pause()
+
+    def toggle_pause(self):
+        """The pause key, or the window's Pause button (which shares this object with the loop)."""
+        self.paused = not self.paused
+        log(f"paused - {key_name(cfg.PAUSE_KEY)} to resume" if self.paused else "resumed")
+        beep(600 if self.paused else 1000)
 
     def sleep(self, seconds):
         """Sleep, polling the hotkeys. Doesn't return while paused (on purpose)."""

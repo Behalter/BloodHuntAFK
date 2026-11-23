@@ -1,0 +1,23 @@
+{
+  "screen": [1920, 1080],
+  "click_at": {
+    "click_skip": [1735, 1047]
+  },
+  "routines": {
+    "storage_full": [
+      {"name": "Prepare",          "click": [1391, 949], "wait": 7,   "shot": "01_results.png",       "hint": "PREPARE, bottom right, left of ONE MORE ROUND"},
+      {"name": "Forge tab",        "click": [571, 38],   "wait": 1,   "shot": "02_hero.png",          "hint": "the FORGE tab at the top"},
+      {"name": "Filter",           "click": [197, 172],  "wait": 1,   "shot": "03_forge.png",         "hint": "FILTER, above the gear list on the left"},
+      {"name": "Rating box",       "click": [1177, 537], "wait": 0.5, "shot": "04_filter.png",        "hint": "the number box on the SHOW RATING ... OR BELOW line (clicking it selects the number)"},
+      {"name": "Type rating",      "type": "{SMELT_RATING}", "wait": 0.3, "shot": "04_filter.png",        "hint": "type the rating; it replaces the selected number"},
+      {"name": "Confirm",          "click": [794, 882],  "wait": 0.3, "shot": "04_filter.png",        "hint": "CONFIRM, under the filter"},
+      {"name": "Select all",       "click": [231, 922],  "wait": 0.5, "shot": "05_forge_filtered.png", "hint": "SELECT ALL, under the gear list"},
+      {"name": "Smelt",            "click": [1305, 864], "wait": 3,   "shot": "06_selected.png",      "hint": "SMELT"},
+      {"name": "Confirm smelt",    "click": [794, 829],  "wait": 4,   "shot": "06b_smelt_confirm.png", "hint": "CONFIRM on the 'Currently contains Legendary quality gear' popup"},
+      {"name": "Dismiss rewards",  "key": "space",       "wait": 0.5, "shot": "07_acquired.png",      "hint": "press SPACE to close the rewards"},
+      {"name": "Overview tab",     "click": [350, 38],   "wait": 1.5, "shot": "08_forge_smelted.png", "hint": "the OVERVIEW tab at the top"},
+      {"name": "Play now",         "click": [1377, 970], "wait": 2.5, "shot": "09_overview.png",      "hint": "PLAY NOW"},
+      {"name": "Start",            "click": [1689, 893], "wait": 0,   "shot": "10_play.png",          "hint": "START"}
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+# Builds the release zip on GitHub when a version tag is pushed (git tag v1.0, then git push origin v1.0),
+# with the same build.ps1, and attaches it to a DRAFT release. Download the draft's zip, test it, then press
+# Publish on GitHub. Only committed files go in (the build starts from a clean checkout of the tag).
+name: Release build
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Build
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: ./build.ps1 -Version $env:TAG
+      - name: Draft release with the zip
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create $env:TAG "dist/BloodHuntAFK-$env:TAG.zip" --draft --title "Blood Hunt AFK $env:TAG" --generate-notes
