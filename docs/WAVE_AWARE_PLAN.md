@@ -327,3 +327,64 @@ Next read-only milestone: inspect existing recorded post-match footage
 to determine which distinct screens can be positively recognized and
 which must remain unknown. Do not infer visual evidence from synthetic
 phase fixtures.
+
+
+## Recorded post-match visual investigation — November 26, 2026
+
+Both original 1920x1080 recordings were reopened and their closing
+sequences inspected visually. Sampled video times (seconds, not exact
+transition times):
+
+| Screen | clip_1,795,641,798,652.mp4 | clip_1,795,706,443,940.mp4 |
+|---|---:|---:|
+| Full-screen Victory banner | 193.52 | 270.35 |
+| MVP animation | 195.44 | 274.18 |
+| MVP statistics | 201.21 | 279.94 |
+| Progression / acquired gear | 205.06 | 283.81 |
+| Event rewards | 206.99 | 285.73 |
+| Final character summary | 208.90 | 289.57 |
+| ONE MORE ROUND label visible | 209.52 (fading in) | 291.37 (fully visible) |
+
+The first clip ends during the final button fade-in; the second has
+several samples of the fully displayed button. Neither shows a
+subsequent hero selection or next-match loading sequence. The
+progression page displays ACQUIRED THIS MATCH and SPACE NEXT /
+SPACE HOLD TO SKIP. Event cards vary (two versus three cards);
+the event page may display NEXT or SKIP. The final summary has
+ESC BACK and later PREPARE / ONE MORE ROUND. A visible button label
+does not prove the button is enabled.
+
+Exploratory fixed-crop grayscale normalized correlation
+(OpenCV TM_CCOEFF_NORMED, same-size reference and sample crop).
+Templates were taken from the second recording; samples were decoded
+sequentially at intervals of at least 0.49s from approximately 160s
+(first clip) and 245s (second). 100 + 96 = 196 observations.
+The first clip is a cross-recording check; the second is not independent
+of calibration. The threshold 0.80 was exploratory, not a production
+acceptance criterion.
+
+| Visual marker | First clip hits / min score | Second clip hits / min score |
+|---|---:|---:|
+| Lower-right MVP logo | 17 / 0.956 | 16 / 0.956 |
+| Upper-left VICTORY | 12 / 0.991 | 21 / 0.991 |
+| ACQUIRED THIS MATCH | 3 / 0.997 | 3 / 0.998 |
+| HOLD TO SKIP | 8 / 0.996 | 14 / 0.996 |
+| Final summary BACK prompt | 4 / 0.998 | 7 / 0.998 |
+| ONE MORE ROUND text | 1 / 0.983 | 4 / 0.999 |
+
+No marker reached 0.80 in sampled pre-victory intervals
+(t < 190s and t < 269s respectively); highest such score was 0.201.
+The first clip's ONE MORE ROUND match was visually checked and the
+label was still fading in, illustrating why text correlation alone
+cannot establish availability. The MVP logo persists into the MVP
+statistics card. The VICTORY corner and HOLD TO SKIP prompts are shared
+by multiple pages, so they cannot distinguish event rewards from
+progression on their own. Event cards and layouts can change; no
+general event-reward classifier has been validated.
+
+These are exploratory offline observations, not a production detector,
+and not exhaustive frame-level ground truth. No code changes, live
+capture, inputs, or new regression tests were made in this increment.
+The verified Windows baseline remains 60 tests. Additional footage
+covering the final summary through the next hero selection would
+close the remaining visual evidence gap.
