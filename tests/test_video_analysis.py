@@ -1,5 +1,7 @@
 """Offline-only detector tests; no game, accounts, or input permissions."""
 import unittest
+from unittest.mock import patch
+from pathlib import Path
 import cv2
 import numpy as np
 
@@ -7,7 +9,7 @@ from bloodhunt.wave_state import Rune
 from scripts.analyze_video import (F_GLYPH, BOSS_BAR_AREA, BOSS_OBJECTIVE_SEARCH,
     PHASE_HEADER_GLYPH, PHASE_HEADER_SEARCH,
     MATCH_ENDING_SEARCH, Calibration, classify_rune, light_text, match_score,
-    normalize, boss_health_bar_run, detect)
+    normalize, boss_health_bar_run, detect, sampled_frames)
 from bloodhunt.wave_state import Phase
 
 
@@ -126,6 +128,37 @@ class VideoDetectorTests(unittest.TestCase):
         self.assertIs(detect(frame, calibration).phase, Phase.COMBAT)
         frame[fy0:fy1, fx0:fx1] = (0, 0, 0)
         self.assertIs(detect(frame, calibration).phase, Phase.UNKNOWN)
+
+    def test_variable_frame_rate_uses_presentation_times(self):
+        """Frame positions must follow media timestamps, not index / mean FPS."""
+        class FakeCapture:
+            def __init__(self):
+                self.times = [0.0, 0.8, 1.1, 1.7]
+                self.index = -1
+
+            def isOpened(self):
+                return True
+
+            def get(self, field):
+                if field == cv2.CAP_PROP_FPS:
+                    return 30.0
+                if field == cv2.CAP_PROP_POS_MSEC:
+                    return self.times[self.index] * 1000
+                return 0.0
+
+            def grab(self):
+                self.index += 1
+                return self.index < len(self.times)
+
+            def retrieve(self):
+                return True, np.zeros((9, 16, 3), dtype=np.uint8)
+
+            def release(self):
+                pass
+
+        with patch("scripts.analyze_video.cv2.VideoCapture", return_value=FakeCapture()):
+            timestamps = [t for t, _ in sampled_frames(Path("synthetic.mp4"), 2.0)]
+        self.assertEqual(timestamps, [0.0, 0.8, 1.1, 1.7])
 
     def test_other_aspect_ratio_is_not_silently_scaled(self):
         with self.assertRaises(ValueError):
