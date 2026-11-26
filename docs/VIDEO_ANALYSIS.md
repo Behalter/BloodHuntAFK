@@ -132,3 +132,54 @@ These reference-marker changes were validated against the supplied recording
 and focused synthetic pattern checks. The complete unit-test suite remains
 to be run on Windows after downloading the updated development branch.
 The logic is still read-only and not integrated with the live bot.
+
+## Second recording validation — November 26, 2026
+
+The second 1920x1080 / approximately 4:53 recording contains four ordinary
+**Defend the Area and Survive** waves instead of **Defeat All Vampires**,
+followed by a **Ratatoskr** boss. This exposed a false negative: the old
+combat detector used the literal DEFEAT objective template and reported
+UNKNOWN for all four ordinary combat intervals, though it identified all five
+INCOMING banners correctly.
+
+The revised detector includes a *generic Phase header* marker that appears
+under both types of objective, **and** requires Thor's F icon to be positively
+recognized. A frame-based local comparison at one sample per second classified
+all four ordinary combat intervals and the short boss phase.
+
+| Second video (approx.) | Screen | Detection |
+| --- | --- | --- |
+| 00:50–01:04 | Incoming preparation | Preparation |
+| 01:05–01:39 | Survive wave 1 | Combat |
+| 01:40–01:54 | Incoming preparation | Preparation |
+| 01:55–02:35 | Survive wave 2 | Combat |
+| 02:36–02:50 | Incoming preparation | Preparation |
+| 02:51–03:17 | Survive wave 3 | Combat |
+| 03:18–03:32 | Incoming preparation | Preparation |
+| 03:33–03:57 | Survive wave 4 | Combat |
+| 03:58–04:12 | Ratatoskr incoming | Preparation |
+| 04:14–04:16 | Ratatoskr boss health bar | Combat |
+| 04:17–04:26 | Match ending soon | Match ending |
+| 04:42 onward | Victory/results | Post-match |
+
+The intervals above are from **sampled recorded frames**, not a live
+automated gameplay test. A number of initial loading/card-selection frames
+remain UNKNOWN by design. This is preferable to issuing unwanted actions.
+
+To analyze the second MP4 using its **own** reference frames, in PowerShell
+from the latest development branch, run:
+
+~~~powershell
+.\.venv\Scripts\python.exe scripts\analyze_video.py "C:\Users\succe\Videos\clip_1,795,706,443,940.mp4" --prep-second 55 --combat-second 80 --victory-second 285 --ready-second 56 --boss-objective-second 255 --ending-second 260 --output second_recording_results
+~~~
+
+The quoted path above comes from the user-supplied recording location.
+The optional reference timestamps make this analysis self-calibrating for
+the second recording. For a different clip, verify and adjust them rather
+than reusing these timestamps blindly.
+
+**Validation boundary:** The revised phase-marker and boss rules were
+checked against extracted sampled frames from both supplied recordings.
+The complete newly updated Windows test suite and an end-to-end run of the
+updated GitHub analyzer on the user's PC have not yet been verified. Do not
+merge to main or enable gameplay inputs based solely on these offline checks.
