@@ -120,6 +120,19 @@ class Calibration:
 
 
 def match_score(frame, template, search):
+    """Match a meaningful binary text marker, never an empty/sparse placeholder.
+
+    TM_CCOEFF_NORMED can give misleadingly high scores to an almost empty
+    synthetic template (for example, one white pixel among many black pixels).
+    Real calibration markers are already required to have 8–85% foreground.
+    Enforce that same contract here so an invalid marker cannot recognize an
+    unrelated screen, including the Victory/results overlay.
+    """
+    if template.ndim != 2 or template.size == 0:
+        return 0.0
+    density = np.count_nonzero(template) / template.size
+    if not 0.08 < density < 0.85:
+        return 0.0
     region = light_text(box(frame, search))
     if region.shape[0] < template.shape[0] or region.shape[1] < template.shape[1]:
         return 0.0
