@@ -90,12 +90,13 @@ class VideoDetectorTests(unittest.TestCase):
     def test_generic_phase_header_with_visible_rune_detects_combat(self):
         frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
         x0, y0, x1, y1 = PHASE_HEADER_GLYPH
-        frame[y0:y1, x0:x1] = (240, 240, 240)
+        frame[y0+3:y1-3, x0+5:x1-5] = (240, 240, 240)
         fx0, fy0, fx1, fy1 = F_GLYPH
         frame[fy0:fy1, fx0:fx1] = (240, 240, 240)
         blank = np.zeros((8, 12), dtype=np.uint8)
         blank[3, 4] = 255
-        phase = np.full((y1-y0, x1-x0), 255, dtype=np.uint8)
+        phase = np.zeros((y1-y0, x1-x0), dtype=np.uint8)
+        phase[3:-3, 5:-5] = 255
         f_mask = np.ones((fy1-fy0, fx1-fx0), dtype=bool)
         calibration = Calibration(blank, blank, blank, blank, blank,
                                   f_mask, phase)
