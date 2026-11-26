@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.analyze_video import Calibration, normalize
 from scripts.shadow_monitor import EVENT_FIELDS, SAMPLE_FIELDS, ShadowMonitor
+from scripts.wave_action_preview import PREVIEW_FIELDS, WaveActionPreview
 
 
 def main(argv=None):
@@ -27,6 +28,8 @@ def main(argv=None):
     parser.add_argument("--reference-video", required=True, type=Path,
                         help="Existing MP4 with clear reference UI images")
     parser.add_argument("--output", type=Path, default=Path("shadow_results"))
+    parser.add_argument("--preview-actions", action="store_true",
+                        help="Log hypothetical F taps to preview_actions.csv; never send inputs")
     parser.add_argument("--rate", type=float, default=2.0,
                         help="Maximum screen observations per second (default 2)")
     parser.add_argument("--prep-second", type=float, default=55)
@@ -54,19 +57,30 @@ def main(argv=None):
     events_path = args.output / "events.csv"
     timeline_path = args.output / "timeline.csv"
     monitor = ShadowMonitor(calibration)
+    preview = WaveActionPreview() if args.preview_actions else None
+    preview_file = args.output / "preview_actions.csv"
     screen = vision.Screen()
     start = time.monotonic()
     observations = 0
     print("Read-only shadow monitor. NO keyboard or mouse actions will be sent.")
     print("Start a match manually. Press Ctrl+C here to stop.")
     print(f"Writing {timeline_path} and {events_path} (game foreground only)")
+    if preview:
+        print(f"Preview enabled: {preview_file} (HYPOTHETICAL F taps; no inputs)")
+    from contextlib import nullcontext
+    preview_context = (preview_file.open("w", newline="", encoding="utf-8")
+                       if preview else nullcontext())
     try:
         with timeline_path.open("w", newline="", encoding="utf-8") as tf, \
-             events_path.open("w", newline="", encoding="utf-8") as ef:
+             events_path.open("w", newline="", encoding="utf-8") as ef, \
+             preview_context as pf:
             tw = csv.DictWriter(tf, fieldnames=SAMPLE_FIELDS)
             ew = csv.DictWriter(ef, fieldnames=EVENT_FIELDS)
             tw.writeheader()
             ew.writeheader()
+            pw = csv.DictWriter(pf, fieldnames=PREVIEW_FIELDS) if preview else None
+            if pw:
+                pw.writeheader()
             while True:
                 iteration_start = time.monotonic()
                 # No input is sent when unfocused. Skip observations rather
@@ -77,6 +91,12 @@ def main(argv=None):
                         image = normalize(screen.grab())
                         sample = monitor.feed(iteration_start - start, image)
                         tw.writerow(sample.csv_row())
+                        if preview:
+                            for proposed in preview.observe(sample):
+                                pw.writerow(proposed.csv_row())
+                                pf.flush()
+                                print(f"{proposed.seconds:7.2f}s  PREVIEW    "
+                                      f"would tap F once to {proposed.intent} (NOT SENT)")
                         observations += 1
                         for event in sample.events:
                             ew.writerow(event.csv_row())
@@ -94,6 +114,8 @@ def main(argv=None):
         if hasattr(screen.sct, "close"):
             screen.sct.close()
     print(f"Timeline: {timeline_path}\nEvents: {events_path}")
+    if preview:
+        print(f"Hypothetical actions: {preview_file}")
 
 
 if __name__ == "__main__":
