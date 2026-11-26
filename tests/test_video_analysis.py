@@ -58,6 +58,7 @@ class VideoDetectorTests(unittest.TestCase):
         x0, y0, x1, y1 = BOSS_BAR_AREA
         frame[y0 + 8:y0 + 14, x0 + 30:x0 + 420] = (20, 115, 170)
         blank = np.zeros((8, 12), np.uint8)
+        blank[3, 4] = 255  # nonconstant: OpenCV constant templates match everywhere
         objective = np.zeros((15, 45), np.uint8)
         cv2.putText(objective, "BOSS", (1, 12),
                     cv2.FONT_HERSHEY_SIMPLEX, .35, 255, 1)
@@ -79,6 +80,7 @@ class VideoDetectorTests(unittest.TestCase):
         cv2.putText(frame, "ENDING", (x0 + 2, y0 + 12),
                     cv2.FONT_HERSHEY_SIMPLEX, .33, (255, 255, 255), 1)
         blank = np.zeros((8, 12), np.uint8)
+        blank[3, 4] = 255  # nonconstant: OpenCV constant templates match everywhere
         calibration = Calibration(blank, blank, blank, blank, phrase,
                                   np.ones((F_GLYPH[3]-F_GLYPH[1],
                                            F_GLYPH[2]-F_GLYPH[0]), dtype=bool))
