@@ -39,10 +39,12 @@ class VideoDetectorTests(unittest.TestCase):
     def test_yellow_and_white_text_have_similar_masks(self):
         white = np.zeros((30, 100, 3), dtype=np.uint8)
         yellow = np.zeros_like(white)
+        # Use a sufficiently substantial text mask (>8% foreground).
+        # Tiny, single-stroke masks are intentionally rejected by match_score.
         cv2.putText(white, 'INCOMING', (2, 25), cv2.FONT_HERSHEY_SIMPLEX,
-                    .45, (240, 240, 240), 1)
+                    .45, (240, 240, 240), 2)
         cv2.putText(yellow, 'INCOMING', (2, 25), cv2.FONT_HERSHEY_SIMPLEX,
-                    .45, (25, 180, 225), 1)
+                    .45, (25, 180, 225), 2)
         # Anti-aliasing at colored text edges can cross the brightness cutoff;
         # require near-equivalence rather than pixel-perfect binary equality.
         white_mask, yellow_mask = light_text(white), light_text(yellow)
@@ -71,9 +73,17 @@ class VideoDetectorTests(unittest.TestCase):
                                   np.ones((F_GLYPH[3]-F_GLYPH[1],
                                            F_GLYPH[2]-F_GLYPH[0]), dtype=bool))
         self.assertIs(detect(frame, calibration).phase, Phase.UNKNOWN)
-        cv2.putText(frame, "BOSS", (BOSS_OBJECTIVE_SEARCH[0] + 5,
-                                  BOSS_OBJECTIVE_SEARCH[1] + 17),
-                    cv2.FONT_HERSHEY_SIMPLEX, .35, (255, 255, 255), 1)
+        # Paste the *same* binary glyph as white BGR pixels. This tests the
+        # detector itself, without relying on separate OpenCV text-rasterization
+        # calls having identical alignment across OpenCV versions.
+        paste_x = BOSS_OBJECTIVE_SEARCH[0] + 4
+        paste_y = BOSS_OBJECTIVE_SEARCH[1] + 5
+        patch = frame[paste_y:paste_y + objective.shape[0],
+                      paste_x:paste_x + objective.shape[1]]
+        patch[objective > 0] = (255, 255, 255)
+        objective_score = match_score(frame, objective, BOSS_OBJECTIVE_SEARCH)
+        self.assertGreater(objective_score, 0.90, f"objective score={objective_score}")
+        self.assertGreaterEqual(boss_health_bar_run(frame), 180)
         self.assertIs(detect(frame, calibration).phase, Phase.COMBAT)
 
     def test_ending_overlay_blocks_combat(self):
