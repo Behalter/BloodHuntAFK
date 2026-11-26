@@ -32,6 +32,11 @@ VICTORY_GLYPH = (50, 23, 340, 94)
 # Both must be present; an isolated orange bar can appear in cinematics.
 BOSS_OBJECTIVE_GLYPH = (63, 71, 231, 93)
 BOSS_OBJECTIVE_SEARCH = (35, 63, 285, 103)
+# The word "Phase" and its wave icon are stable across both elimination
+# and survival objectives. Only trust it with a visible, classifiable F icon;
+# otherwise a card menu or loading scene could look like combat.
+PHASE_HEADER_GLYPH = (45, 62, 103, 82)
+PHASE_HEADER_SEARCH = (26, 56, 150, 93)
 BOSS_BAR_AREA = (650, 105, 1290, 160)
 MATCH_ENDING_GLYPH = (880, 35, 1047, 56)
 MATCH_ENDING_SEARCH = (770, 23, 1150, 73)
@@ -91,6 +96,7 @@ class Calibration:
     boss_objective: np.ndarray
     ending: np.ndarray
     f_glyph: np.ndarray
+    phase_header: np.ndarray | None = None  # optional for old synthetic fixtures
 
     @classmethod
     def from_video(cls, video: Path, prep: float, combat: float,
@@ -102,13 +108,15 @@ class Calibration:
         boss = light_text(box(frame_at(video, boss_objective), BOSS_OBJECTIVE_GLYPH))
         ending_mask = light_text(box(frame_at(video, ending), MATCH_ENDING_GLYPH))
         f = bright_white(box(frame_at(video, ready), F_GLYPH))
+        phase_header = light_text(box(frame_at(video, combat), PHASE_HEADER_GLYPH))
         for name, mask in (("incoming", inc), ("combat", fight),
                            ("victory", win), ("boss objective", boss),
-                           ("match ending", ending_mask), ("ready F", f)):
+                           ("match ending", ending_mask), ("ready F", f),
+                           ("phase header", phase_header)):
             density = float(mask.mean() / 255) if mask.dtype == np.uint8 else float(mask.mean())
             if not 0.08 < density < 0.85:
                 raise ValueError(f"Invalid {name} reference; verify reference timestamp")
-        return cls(inc, fight, win, boss, ending_mask, f)
+        return cls(inc, fight, win, boss, ending_mask, f, phase_header)
 
 
 def match_score(frame, template, search):
@@ -164,6 +172,7 @@ class Detection:
     boss_objective_score: float = 0.
     ending_score: float = 0.
     boss_bar_run: int = 0
+    phase_header_score: float = 0.
 
 
 def detect(frame, calibration):
@@ -173,20 +182,24 @@ def detect(frame, calibration):
     ending = match_score(frame, calibration.ending, MATCH_ENDING_SEARCH)
     boss_objective = match_score(frame, calibration.boss_objective, BOSS_OBJECTIVE_SEARCH)
     bar_run = boss_health_bar_run(frame)
+    phase_header = (match_score(frame, calibration.phase_header, PHASE_HEADER_SEARCH)
+                    if calibration.phase_header is not None else 0.0)
+    possible_rune = classify_rune(frame, calibration.f_glyph)
     if victory >= 0.90:
         phase = Phase.POST_MATCH
     elif ending >= 0.90:
         phase = Phase.MATCH_ENDING
     elif incoming >= 0.78:
         phase = Phase.PREPARATION
-    elif combat >= 0.86 or (boss_objective >= 0.90 and bar_run >= 180):
+    elif (combat >= 0.86 or
+          (phase_header >= 0.88 and possible_rune is not Rune.UNKNOWN) or
+          (boss_objective >= 0.90 and bar_run >= 180)):
         phase = Phase.COMBAT
     else:
         phase = Phase.UNKNOWN
-    rune = classify_rune(frame, calibration.f_glyph) if phase in (
-        Phase.PREPARATION, Phase.COMBAT) else Rune.UNKNOWN
+    rune = possible_rune if phase in (Phase.PREPARATION, Phase.COMBAT) else Rune.UNKNOWN
     return Detection(phase, rune, incoming, combat, victory,
-                     boss_objective, ending, bar_run)
+                     boss_objective, ending, bar_run, phase_header)
 
 
 def sampled_frames(video: Path, sample_rate: float):
@@ -227,7 +240,8 @@ def analyze(video: Path, reference: Path, out: Path, *, rate: float = 2.,
     advisor = WaveAdvisor(stable_frames=2, long_wave_seconds=75)
     fields = ("seconds", "detected_phase", "rune", "incoming_score",
               "combat_score", "victory_score", "boss_objective_score",
-              "ending_score", "boss_bar_run", "confirmed_phase", "suggestions")
+              "ending_score", "boss_bar_run", "phase_header_score",
+              "confirmed_phase", "suggestions")
     event_fields = ("seconds", "kind", "phase", "rune", "details")
     events, samples = [], 0
     seen_rune, pending_rune, pending_count = Rune.UNKNOWN, Rune.UNKNOWN, 0
@@ -245,6 +259,7 @@ def analyze(video: Path, reference: Path, out: Path, *, rate: float = 2.,
                 boss_objective_score=f"{d.boss_objective_score:.3f}",
                 ending_score=f"{d.ending_score:.3f}",
                 boss_bar_run=d.boss_bar_run,
+                phase_header_score=f"{d.phase_header_score:.3f}",
                 confirmed_phase=decision.confirmed_phase.value,
                 suggestions=";".join(s.value for s in decision.suggestions)))
             if d.rune is Rune.UNKNOWN:
