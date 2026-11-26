@@ -11,7 +11,12 @@ from __future__ import annotations
 import argparse
 import csv
 from pathlib import Path
+import sys
 import time
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from scripts.analyze_video import Calibration, normalize
 from scripts.shadow_monitor import EVENT_FIELDS, SAMPLE_FIELDS, ShadowMonitor
@@ -64,8 +69,8 @@ def main(argv=None):
             ew.writeheader()
             while True:
                 iteration_start = time.monotonic()
-                # Never resume a stale phase after a focus change. We simply
-                # skip frames when another application is in the foreground.
+                # No input is sent when unfocused. Skip observations rather
+                # than treating another application's UI as gameplay.
                 if winapi.game_in_front():
                     screen.refresh()
                     if screen.size[0] * 9 == screen.size[1] * 16:
