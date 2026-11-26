@@ -14,6 +14,7 @@ from enum import Enum
 
 class Phase(str, Enum):
     UNKNOWN = "unknown"
+    MATCH_ENDING = "match_ending"  # countdown/results transition; no ability advice
     PREPARATION = "preparation"  # 'Vampires Incoming' or '<Boss> Incoming'
     COMBAT = "combat"
     POST_MATCH = "post_match"
@@ -77,6 +78,7 @@ class WaveAdvisor:
         self._initial_suggested = False
         self._extra_suggested = False
         self._active_after_initial = False
+        self._ending_seen = False  # suppress Rune advice after match-ending transition
 
     def observe(self, observation: Observation) -> Result:
         now = observation.seconds
@@ -98,8 +100,13 @@ class WaveAdvisor:
         if self._streak < self.stable_frames:
             return Result(self.confirmed_phase, (), False)
 
-        changed = observation.phase is not self.confirmed_phase
+        previous_phase = self.confirmed_phase
+        changed = observation.phase is not previous_phase
         if changed:
+            if previous_phase is Phase.POST_MATCH and observation.phase in (Phase.COMBAT, Phase.PREPARATION):
+                self._ending_seen = False  # a subsequent match has started
+            if observation.phase is Phase.MATCH_ENDING:
+                self._ending_seen = True
             self.confirmed_phase = observation.phase
             self._phase_since = now
             self._cancel_suggested = False
@@ -110,6 +117,11 @@ class WaveAdvisor:
         if self.confirmed_phase is Phase.POST_MATCH:
             return Result(self.confirmed_phase,
                           (Suggestion.MATCH_COMPLETE,) if changed else (), changed)
+
+        # An ending transition must never be mistaken for another wave. Keep
+        # suppressing advice through brief unknown frames or cinematic overlays.
+        if self.confirmed_phase is Phase.MATCH_ENDING or self._ending_seen:
+            return Result(self.confirmed_phase, (), changed)
 
         if self.confirmed_phase is Phase.PREPARATION:
             # Never suggest canceling if already inactive, ready state unknown,
