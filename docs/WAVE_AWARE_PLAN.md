@@ -1,6 +1,6 @@
 # Wave-aware Thor Rune controller — implementation plan
 
-Status: design only. No live gameplay behavior changed.
+Status: read-only recognition and action preview validated for tested scenarios. No live gameplay behavior changed. Input delivery remains unimplemented.
 
 ## Baseline
 - Source fork: `decea1st/BloodHuntAFK`, preserved on `main`.
@@ -212,8 +212,7 @@ Run all tests:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Expected count: **33** (25 existing + 8 preview tests). This new test
-count is a target until verified on Windows.
+Verified Windows baseline: **36 tests passed** (25 existing + 11 preview tests).
 
 Run with the optional preview enabled while manually playing:
 
@@ -225,3 +224,48 @@ After Ctrl+C, inspect three CSVs in `shadow_preview_results`:
 `timeline.csv`, `events.csv`, and `preview_actions.csv`.
 The original bot's `RUN_ROUTINES` / smelting behavior is not invoked by
 this standalone monitor. Do not launch `BloodHuntAFK.py` for this test.
+
+
+## Final live preview validation — November 26, 2026
+
+**PASS for the tested read-only scenario.** User reported 36/36 local
+unit tests passing in 0.164s after downloading preview implementation
+commit `ac08827f13abf1b7508afd193231a79a9c18b906` and regression tests
+commit `2549e5fa61ddb619fc5b027946768e69b6c5094a`.
+
+The final uploaded CSVs were directly inspected: 780 timeline rows
+(164.29–555.20s monitor elapsed), 35 event rows, 9 preview rows.
+419 timeline rows preceded the first confirmed preparation. The match
+itself had five confirmed preparations, five confirmed combat phases,
+one ending and one results transition.
+
+| Stage | Activation preview (s) | Following cancellation preview (s) |
+|---|---:|---:|
+| Wave 1 | 389.60 | 409.11 |
+| Wave 2 | 424.12 | 440.63 |
+| Wave 3 | 455.64 | 471.65 |
+| Wave 4 | 486.66 | 501.17 |
+| Boss | 516.68 | — |
+
+Every preview coincided with phase confirmation and was supported by
+two consecutive matching raw phase/Rune observations 0.50s apart.
+No duplicate, pre-match, or post-ending previews were present.
+All four cancellations had incoming score 0.990. Rune readiness
+preceded the next confirmed combat by 3.00, 3.50, 1.50 and 3.00s.
+
+The final boss had objective score 0.984 and 380px health-bar run
+at activation preview. A single raw ACTIVE observation at 518.68s
+was followed by raw MATCH_ENDING at 519.18s and confirmed ending at
+519.68s; the two-frame Rune event did not fire. This is consistent
+with the manual activation but is not independent input verification.
+Results confirmed at 544.70s. No action preview followed the ending.
+
+Limitations: detector-derived CSVs are not independent frame-level
+ground truth; this is not a test of real input delivery, focus loss
+during a pending action, long-wave live recovery, or arbitrary
+resolutions. No actual input was sent. No additional live match is
+required to close this read-only milestone.
+
+Recommended next milestone: isolated, simulated action acknowledgement
+and failure handling with a fake input sink, without sending gameplay
+inputs. Keep the existing bot and smelting routines unchanged.
