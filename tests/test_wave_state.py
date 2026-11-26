@@ -78,6 +78,21 @@ class WaveAdvisorTests(unittest.TestCase):
         self.assertEqual(observe(a, 4, Phase.COMBAT, Rune.READY).suggestions, ())
         self.assertEqual(observe(a, 5, Phase.COMBAT, Rune.READY).suggestions, ())
 
+    def test_match_ending_suppresses_late_rune_advice(self):
+        a = WaveAdvisor()
+        observe(a, 0, Phase.COMBAT, Rune.READY)
+        observe(a, 1, Phase.COMBAT, Rune.READY)
+        observe(a, 2, Phase.MATCH_ENDING, Rune.ACTIVE)
+        confirmed = observe(a, 3, Phase.MATCH_ENDING, Rune.READY)
+        self.assertIs(confirmed.confirmed_phase, Phase.MATCH_ENDING)
+        self.assertEqual(confirmed.suggestions, ())
+        observe(a, 4, Phase.UNKNOWN, Rune.READY)
+        observe(a, 5, Phase.COMBAT, Rune.READY)
+        self.assertEqual(observe(a, 6, Phase.COMBAT, Rune.READY).suggestions, ())
+        observe(a, 7, Phase.POST_MATCH)
+        self.assertEqual(observe(a, 8, Phase.POST_MATCH).suggestions,
+                         (Suggestion.MATCH_COMPLETE,))
+
     def test_reject_backwards_timestamps(self):
         a = WaveAdvisor()
         observe(a, 3, Phase.COMBAT)
