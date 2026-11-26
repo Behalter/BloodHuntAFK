@@ -4,7 +4,10 @@ import cv2
 import numpy as np
 
 from bloodhunt.wave_state import Rune
-from scripts.analyze_video import F_GLYPH, classify_rune, light_text, match_score, normalize
+from scripts.analyze_video import (F_GLYPH, BOSS_BAR_AREA, BOSS_OBJECTIVE_SEARCH,
+    MATCH_ENDING_SEARCH, Calibration, classify_rune, light_text, match_score,
+    normalize, boss_health_bar_run, detect)
+from bloodhunt.wave_state import Phase
 
 
 class VideoDetectorTests(unittest.TestCase):
@@ -41,6 +44,45 @@ class VideoDetectorTests(unittest.TestCase):
                     .45, (25, 180, 225), 1)
         np.testing.assert_array_equal(light_text(white), light_text(yellow))
         self.assertGreater(match_score(white, light_text(white), (0, 0, 100, 30)), .99)
+
+    def test_boss_bar_requires_long_orange_segment(self):
+        frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        x0, y0, x1, y1 = BOSS_BAR_AREA
+        frame[y0 + 8:y0 + 14, x0 + 30:x0 + 420] = (20, 115, 170)
+        self.assertGreaterEqual(boss_health_bar_run(frame), 350)
+        frame[y0 + 8:y0 + 14, x0 + 30:x0 + 420] = (255, 255, 255)
+        self.assertEqual(boss_health_bar_run(frame), 0)
+
+    def test_boss_phase_requires_objective_as_well_as_bar(self):
+        frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        x0, y0, x1, y1 = BOSS_BAR_AREA
+        frame[y0 + 8:y0 + 14, x0 + 30:x0 + 420] = (20, 115, 170)
+        blank = np.zeros((8, 12), np.uint8)
+        objective = np.zeros((15, 45), np.uint8)
+        cv2.putText(objective, "BOSS", (1, 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, .35, 255, 1)
+        calibration = Calibration(blank, blank, blank, objective, blank,
+                                  np.ones((F_GLYPH[3]-F_GLYPH[1],
+                                           F_GLYPH[2]-F_GLYPH[0]), dtype=bool))
+        self.assertIs(detect(frame, calibration).phase, Phase.UNKNOWN)
+        cv2.putText(frame, "BOSS", (BOSS_OBJECTIVE_SEARCH[0] + 5,
+                                  BOSS_OBJECTIVE_SEARCH[1] + 17),
+                    cv2.FONT_HERSHEY_SIMPLEX, .35, (255, 255, 255), 1)
+        self.assertIs(detect(frame, calibration).phase, Phase.COMBAT)
+
+    def test_ending_overlay_blocks_combat(self):
+        frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        x0, y0, _, _ = MATCH_ENDING_SEARCH
+        phrase = np.zeros((15, 80), np.uint8)
+        cv2.putText(phrase, "ENDING", (2, 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, .33, 255, 1)
+        cv2.putText(frame, "ENDING", (x0 + 2, y0 + 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, .33, (255, 255, 255), 1)
+        blank = np.zeros((8, 12), np.uint8)
+        calibration = Calibration(blank, blank, blank, blank, phrase,
+                                  np.ones((F_GLYPH[3]-F_GLYPH[1],
+                                           F_GLYPH[2]-F_GLYPH[0]), dtype=bool))
+        self.assertIs(detect(frame, calibration).phase, Phase.MATCH_ENDING)
 
     def test_other_aspect_ratio_is_not_silently_scaled(self):
         with self.assertRaises(ValueError):
