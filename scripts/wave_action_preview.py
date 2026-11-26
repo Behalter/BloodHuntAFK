@@ -76,6 +76,22 @@ class WaveActionPreview:
             self._streak = 0
         self._last_seconds = now
 
+        # Count raw visual agreement *before* a phase is confirmed. The
+        # WaveAdvisor already needs two frames to confirm a new phase; by
+        # that moment, a second independent wait can be too late if the
+        # icon briefly becomes unreadable during the user's manual toggle.
+        # Never count UNKNOWN, cooldown, or raw match-ending frames.
+        d = sample.detection
+        signature = ((d.phase, d.rune)
+                     if d.phase in (Phase.PREPARATION, Phase.COMBAT)
+                     and d.rune in (Rune.ACTIVE, Rune.READY) else None)
+        if signature is None:
+            self._signature, self._streak = None, 0
+        elif signature == self._signature:
+            self._streak += 1
+        else:
+            self._signature, self._streak = signature, 1
+
         phase = sample.confirmed_phase
         changed = phase is not self._last_phase
         previous_phase = self._last_phase
@@ -83,8 +99,8 @@ class WaveActionPreview:
             self._last_phase = phase
             self._used.clear()
             self._pending = None
-            self._signature = None
-            self._streak = 0
+            # Keep the just-observed raw streak across confirmation. It
+            # already spans the two stable preparation/combat frames.
             if self._blocked_for_gap:
                 # A new confirmed phase, rather than simply returning focus
                 # to a stale frame, is required before considering an intent.
@@ -101,18 +117,12 @@ class WaveActionPreview:
         if self._blocked_for_gap:
             return ()
 
-        d = sample.detection
         if d.phase is not phase or d.rune is Rune.UNKNOWN:
+            # No intent may be emitted until the confirmed phase AND raw
+            # phase agree. Preserve only raw streak evidence for future
+            # confirmation; abandon any pending intent on ambiguity.
             self._pending = None
-            self._signature = None
-            self._streak = 0
             return ()
-
-        signature = (d.phase, d.rune)
-        if signature == self._signature:
-            self._streak += 1
-        else:
-            self._signature, self._streak = signature, 1
 
         for event in sample.events:
             if event.kind != "suggestion":
