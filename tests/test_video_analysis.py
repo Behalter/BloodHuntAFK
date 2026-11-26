@@ -5,6 +5,7 @@ import numpy as np
 
 from bloodhunt.wave_state import Rune
 from scripts.analyze_video import (F_GLYPH, BOSS_BAR_AREA, BOSS_OBJECTIVE_SEARCH,
+    PHASE_HEADER_GLYPH, PHASE_HEADER_SEARCH,
     MATCH_ENDING_SEARCH, Calibration, classify_rune, light_text, match_score,
     normalize, boss_health_bar_run, detect)
 from bloodhunt.wave_state import Phase
@@ -85,6 +86,22 @@ class VideoDetectorTests(unittest.TestCase):
                                   np.ones((F_GLYPH[3]-F_GLYPH[1],
                                            F_GLYPH[2]-F_GLYPH[0]), dtype=bool))
         self.assertIs(detect(frame, calibration).phase, Phase.MATCH_ENDING)
+
+    def test_generic_phase_header_with_visible_rune_detects_combat(self):
+        frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        x0, y0, x1, y1 = PHASE_HEADER_GLYPH
+        frame[y0:y1, x0:x1] = (240, 240, 240)
+        fx0, fy0, fx1, fy1 = F_GLYPH
+        frame[fy0:fy1, fx0:fx1] = (240, 240, 240)
+        blank = np.zeros((8, 12), dtype=np.uint8)
+        blank[3, 4] = 255
+        phase = np.full((y1-y0, x1-x0), 255, dtype=np.uint8)
+        f_mask = np.ones((fy1-fy0, fx1-fx0), dtype=bool)
+        calibration = Calibration(blank, blank, blank, blank, blank,
+                                  f_mask, phase)
+        self.assertIs(detect(frame, calibration).phase, Phase.COMBAT)
+        frame[fy0:fy1, fx0:fx1] = (0, 0, 0)
+        self.assertIs(detect(frame, calibration).phase, Phase.UNKNOWN)
 
     def test_other_aspect_ratio_is_not_silently_scaled(self):
         with self.assertRaises(ValueError):
