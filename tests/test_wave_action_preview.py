@@ -88,6 +88,31 @@ class WaveActionPreviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             p.observe(sample(3, Phase.UNKNOWN, Rune.UNKNOWN))
 
+    def test_preparation_confirmation_reuses_raw_streak(self):
+        p = WaveActionPreview()
+        self.assertEqual(p.observe(sample(0, Phase.COMBAT, Rune.ACTIVE,
+                                          detected_phase=Phase.PREPARATION)), ())
+        self.assertEqual([e.intent for e in p.observe(sample(
+            .5, Phase.PREPARATION, Rune.ACTIVE, "consider_cancel_rune"))],
+            ["cancel"])
+        self.assertEqual(p.observe(sample(1, Phase.PREPARATION, Rune.UNKNOWN)), ())
+
+    def test_combat_confirmation_reuses_raw_streak(self):
+        p = WaveActionPreview()
+        self.assertEqual(p.observe(sample(0, Phase.PREPARATION, Rune.READY,
+                                          detected_phase=Phase.COMBAT)), ())
+        self.assertEqual([e.intent for e in p.observe(sample(
+            .5, Phase.COMBAT, Rune.READY, "consider_activate_rune"))],
+            ["activate"])
+
+    def test_cooldown_permanently_discards_pending_cancel(self):
+        p = WaveActionPreview()
+        self.assertEqual(p.observe(sample(0, Phase.PREPARATION, Rune.ACTIVE,
+                                          "consider_cancel_rune")), ())
+        for t, rune in ((.5, Rune.COOLDOWN), (1, Rune.ACTIVE),
+                        (1.5, Rune.ACTIVE), (2, Rune.ACTIVE)):
+            self.assertEqual(p.observe(sample(t, Phase.PREPARATION, rune)), ())
+
     def test_bad_configuration(self):
         with self.assertRaises(ValueError):
             WaveActionPreview(stable_samples=1)
