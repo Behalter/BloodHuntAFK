@@ -66,9 +66,17 @@ class VideoDetectorTests(unittest.TestCase):
         frame[y0 + 8:y0 + 14, x0 + 30:x0 + 420] = (20, 115, 170)
         blank = np.zeros((8, 12), np.uint8)
         blank[3, 4] = 255  # nonconstant: OpenCV constant templates match everywhere
-        objective = np.zeros((15, 45), np.uint8)
-        cv2.putText(objective, "BOSS", (1, 12),
-                    cv2.FONT_HERSHEY_SIMPLEX, .35, 255, 1)
+        # A high-contrast, substantial synthetic marker. This test verifies
+        # that a recognized objective AND a boss health bar are required;
+        # using tiny cv2.putText glyphs made the correlation score vary across
+        # OpenCV versions despite unchanged gameplay detection.
+        objective = np.zeros((20, 80), np.uint8)
+        cv2.rectangle(objective, (5, 3), (15, 16), 255, -1)
+        cv2.rectangle(objective, (22, 3), (37, 7), 255, -1)
+        cv2.rectangle(objective, (22, 12), (37, 16), 255, -1)
+        cv2.rectangle(objective, (47, 3), (54, 16), 255, -1)
+        cv2.rectangle(objective, (64, 3), (71, 16), 255, -1)
+        cv2.rectangle(objective, (47, 8), (71, 10), 255, -1)
         calibration = Calibration(blank, blank, blank, objective, blank,
                                   np.ones((F_GLYPH[3]-F_GLYPH[1],
                                            F_GLYPH[2]-F_GLYPH[0]), dtype=bool))
@@ -81,6 +89,7 @@ class VideoDetectorTests(unittest.TestCase):
         patch = frame[paste_y:paste_y + objective.shape[0],
                       paste_x:paste_x + objective.shape[1]]
         patch[objective > 0] = (255, 255, 255)
+        np.testing.assert_array_equal(light_text(patch), objective)
         objective_score = match_score(frame, objective, BOSS_OBJECTIVE_SEARCH)
         self.assertGreater(objective_score, 0.90, f"objective score={objective_score}")
         self.assertGreaterEqual(boss_health_bar_run(frame), 180)
