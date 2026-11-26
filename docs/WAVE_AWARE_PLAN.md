@@ -303,3 +303,27 @@ Retain the provisional synthetic timeout and no-retry policy. No
 input integration or timing changes were made. Future offline work
 may test complete synthetic match sequences and post-match recognition
 without connecting the simulator to gameplay controls.
+
+
+## Synthetic match lifecycle validation — November 26, 2026
+
+The user ran the cumulative Windows unittest suite after downloading
+`tests/test_match_lifecycle.py` at commit
+`b13c4f93967f4ff7ca1b46f9a99bbcd7f0e6b6d4`.
+**60/60 tests passed in 0.170s**, including all eight new integration tests.
+The breakdown is 12 advisor, 10 video detector, 3 shadow monitor, 11
+preview, 16 acknowledgement, and 8 lifecycle tests.
+
+The integration fixture substitutes synthetic Detection classifications
+for image recognition and exercises the real advisor, shadow monitor,
+preview planner, and isolated acknowledgement simulation. It covers a
+complete five-combat match with nine simulated proposals and nine
+acknowledgements, rapid boss ending, delivery failure, extended combat,
+unknown HUD, synthetic focus loss, ending latch, and emergency stop.
+No production code or input routines changed. The fixture does not
+establish real input response, real window focus behavior, or visual
+recognition of MVP/menu screens. Its cinematic interval is UNKNOWN.
+Next read-only milestone: inspect existing recorded post-match footage
+to determine which distinct screens can be positively recognized and
+which must remain unknown. Do not infer visual evidence from synthetic
+phase fixtures.
