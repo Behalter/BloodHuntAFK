@@ -216,7 +216,13 @@ def detect(frame, calibration):
 
 
 def sampled_frames(video: Path, sample_rate: float):
-    """Efficient sequential decoding, with approximate frame-based timestamps."""
+    """Sequential decoding using presentation timestamps, including VFR clips.
+
+    Steam recordings may be variable-frame-rate. index / average_fps can
+    drift several seconds from the actual countdown shown in the footage.
+    Prefer each decoded frame's media timestamp; estimate from the average
+    frame rate only if OpenCV provides no usable timestamp.
+    """
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
         raise ValueError(f"Cannot open video: {video}")
@@ -224,9 +230,16 @@ def sampled_frames(video: Path, sample_rate: float):
         fps = cap.get(cv2.CAP_PROP_FPS)
         if fps < 1 or fps > 240:
             raise ValueError(f"Invalid video FPS: {fps}")
-        index, next_sample = 0, 0.0
+        index, next_sample, previous_time = 0, 0.0, -1.0
         while cap.grab():
-            seconds = index / fps
+            presentation_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+            if (not np.isfinite(presentation_time) or
+                    (presentation_time <= 0 and index > 0) or
+                    presentation_time < previous_time):
+                seconds = max(index / fps, previous_time)
+            else:
+                seconds = presentation_time
+            previous_time = seconds
             index += 1
             if seconds + 1e-6 < next_sample:
                 continue
