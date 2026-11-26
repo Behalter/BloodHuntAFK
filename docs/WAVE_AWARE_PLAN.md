@@ -177,3 +177,51 @@ presses without verifying state between them. Require foreground/focus,
 consecutive confirmed observations, no actions after ending, and bounded
 manual stop controls. Do not enable storage-full smelting. Gameplay
 automation may violate game rules and risk account enforcement.
+
+## Optional wave-aware action preview — November 26, 2026
+
+An opt-in dry-run preview is implemented in the development branch. The
+files `scripts/wave_action_preview.py` and `tests/test_wave_action_preview.py`
+are new; `scripts/monitor_game.py` was updated with the
+`--preview-actions` option. **Default remains read-only monitoring without
+preview**; even with this option enabled, there are no key or mouse calls.
+The original `bloodhunt/bot.py`, its fixed-timer `Presses` logic, and
+input/routine modules are unchanged.
+
+Preview logic:
+- Begin only on a one-shot `WaveAdvisor` suggestion.
+- Require two consecutive matching, positively classified Rune/phase
+  observations before outputting a hypothetical single `F` tap.
+- Never emit on an unknown Rune state, an uncertain/raw phase, after
+  `MATCH_ENDING` or results, or after an observation gap larger than
+  2.5 seconds without a new phase transition.
+- One hypothetical tap per intent per confirmed phase. Do not convert
+  this CSV directly to keypresses: real input requires independent
+  post-input visual verification, focus checks, retries bounded by
+  explicit safety rules, and a separate deliberate opt-in.
+- `preview_actions.csv` lists the simulated intent. It is not evidence
+  that the game would have accepted an input or that the user actually
+  pressed a key.
+
+### Run on Windows
+
+Sync the two new files and updated `scripts/monitor_game.py` first.
+Run all tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Expected count: **33** (25 existing + 8 preview tests). This new test
+count is a target until verified on Windows.
+
+Run with the optional preview enabled while manually playing:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\monitor_game.py --reference-video "C:\Users\succe\Videos\clip_1,795,706,443,940.mp4" --preview-actions --output shadow_preview_results
+```
+
+After Ctrl+C, inspect three CSVs in `shadow_preview_results`:
+`timeline.csv`, `events.csv`, and `preview_actions.csv`.
+The original bot's `RUN_ROUTINES` / smelting behavior is not invoked by
+this standalone monitor. Do not launch `BloodHuntAFK.py` for this test.
