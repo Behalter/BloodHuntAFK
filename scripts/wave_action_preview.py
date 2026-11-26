@@ -133,14 +133,18 @@ class WaveActionPreview:
                 if phase is required_phase and d.rune is required_rune:
                     self._pending = intent
 
-        if not self._pending or self._streak < self.stable_samples:
+        if not self._pending:
             return ()
 
         required = next(
             ((p, r) for intent, p, r in _INTENTS.values()
              if intent == self._pending), None)
+        # Invalidate a stale intent immediately, even before a new Rune
+        # state has accumulated enough samples to count as stable.
         if required != (phase, d.rune) or self._pending in self._used:
             self._pending = None
+            return ()
+        if self._streak < self.stable_samples:
             return ()
 
         intent = self._pending
