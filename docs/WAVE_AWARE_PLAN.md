@@ -269,3 +269,37 @@ required to close this read-only milestone.
 Recommended next milestone: isolated, simulated action acknowledgement
 and failure handling with a fake input sink, without sending gameplay
 inputs. Keep the existing bot and smelting routines unchanged.
+
+
+## Offline acknowledgement simulation — November 26, 2026
+
+The isolated `scripts/simulate_acknowledgement.py` module and its
+16 synthetic tests are committed. The user verified the cumulative
+Windows suite: **52/52 passed in 0.294s**. Breakdown: 12 advisor,
+10 video detector, 3 shadow monitor, 11 preview, 16 acknowledgement.
+The simulation has no device calls, callbacks, or live monitor integration.
+Defaults: two matching subsequent observations, 3s acknowledgement
+timeout, 2.5s maximum gap, no retries. These are provisional fixture
+parameters, not measured response times.
+
+Reinspection of final timeline(5).csv (780 observations),
+events(5).csv (35 events), and preview_actions(1).csv (9 previews)
+found the following elapsed seconds from hypothetical preview to two
+consecutive matching raw phase/Rune observations:
+
+| Stage | Activation | Following cancellation |
+|---|---:|---:|
+| Wave 1 | 4.00 | 1.50 |
+| Wave 2 | 4.01 | 2.50 |
+| Wave 3 | 5.00 | 4.51 |
+| Wave 4 | 5.50 | 7.50 |
+| Boss | interrupted by raw ending | — |
+
+The boss had one ACTIVE sample 2.00s after preview, followed by raw
+ending 2.50s after preview. These are preview-to-observation intervals,
+including unknown manual reaction delays. They do not measure input
+delivery or game response latency and cannot validate a live timeout.
+Retain the provisional synthetic timeout and no-retry policy. No
+input integration or timing changes were made. Future offline work
+may test complete synthetic match sequences and post-match recognition
+without connecting the simulator to gameplay controls.
