@@ -128,11 +128,52 @@ that code.
 
 ### Open integration questions
 
-- The monitor has not yet been validated on a real desktop capture stream,
-  only on recorded clips / state-machine tests.
-- The current `vision.Screen` capture method must be validated against
-  real game display scaling, focus and scan cadence.
+- The first real desktop-capture shadow run completed successfully on November 26, 2026. The recordings and CSVs support phase/rune recognition; output-input integration remains untested.
+- The current `vision.Screen` captured the user's 16:9 game window at approximately 2 samples/second in one live session. Other display scaling, focus changes and performance conditions are not yet validated.
 - There is no live-input integration, and it is intentionally not the
   next test. Establish an accurate shadow log first.
 - Gameplay automation may violate Marvel Rivals' terms and expose the
   account to sanctions, regardless of whether controls can be simulated.
+
+
+## First read-only live shadow-monitor result — November 26, 2026
+
+User ran the monitor on Windows with Python 3.15 and OpenCV 5.1.
+All **25 unit tests passed** locally. The first live event and timeline CSVs
+contained **420 observations**, from monitor elapsed **23.02s through 232.66s**;
+some initial time was skipped while the game was not foregrounded. Monitoring
+recorded no keyboard/mouse inputs.
+
+Observed chronological phases:
+
+- Preparations confirmed: 64.54s, 94.56s, 126.08s, 155.11s, 184.62s.
+- Combats confirmed: 79.05s, 109.57s, 140.59s, 169.61s, 200.13s.
+- Ending confirmed: 201.64s; victory/results: 227.15s.
+- Four one-shot cancellation suggestions at 94.56s, 126.08s,
+  155.11s and 184.62s. No unnecessary activation suggestion because
+  the Rune HUD was already ACTIVE at the confirmed combat boundaries.
+- Rune COOLDOWN -> READY: 97.57 -> 106.57 (9.0s),
+  129.58 -> 136.09 (6.51s), 159.61 -> 165.61 (6.0s),
+  189.63 -> 195.63 (6.0s).
+- Rune readiness preceded next confirmed combat by 3.0, 4.5, 4.0 and
+  4.5 seconds, respectively. These are **visual detection intervals**, not
+  precise measurements of game ability cooldown or user keypress timings.
+- Preparation signal 0.934–0.992; normal-combat Phase header ~0.953–0.969;
+  boss objective 0.960–0.969 with >=180px health bar; ending ~0.982–0.986;
+  victory ~0.962–0.963. Strong boss-objective matches also appeared during
+  preparations, underscoring why the health-bar condition is mandatory.
+- Post-ending cinematic frames were UNKNOWN and generated no new suggestions.
+
+**Assessment:** Recorded behavior is consistent with all expected wave
+transitions and manual Rune cancellations. The CSVs are detector-produced
+evidence, not independent visual ground truth for every frame; do not claim
+universal accuracy or live-control reliability from a single shadow session.
+
+**Next development work** is a separately switchable controller behind an
+explicit opt-in and a dry-run/monitor-only default. Preserve the original
+timed mode. Critically, the existing `ABILITY_PRESSES=3` policy is unsuitable
+as an assumed default for toggle-to-cancel actions: do not issue multiple F
+presses without verifying state between them. Require foreground/focus,
+consecutive confirmed observations, no actions after ending, and bounded
+manual stop controls. Do not enable storage-full smelting. Gameplay
+automation may violate game rules and risk account enforcement.
