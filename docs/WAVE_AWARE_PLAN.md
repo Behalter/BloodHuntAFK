@@ -699,3 +699,39 @@ game button readiness, or actual game response has been validated.
 The local normal path is complete; prior single-match abort tests
 remain the evidence for stop and focus-loss behavior. No further
 repetition of these local normal-path diagnostics is needed.
+
+
+## Supervised live two-match integration milestone
+
+User-reported Windows console output for supervised_two_matches_2,
+using scripts/supervised_two_matches.py at commit
+fae46f0d2e86381d7ed1e9580b2174f5350ff4b8, records two completed
+victories and 18/18 Rune HUD acknowledgements (10 activations and
+8 cancellations). The user manually starts the first match; shop
+selections remain operator-managed. The user previously affirmed
+authorization for the test environment; this is not independently
+verified.
+
+Observed timestamps (seconds from monitor start, excluding countdown):
+- M1 armed 23.08; victory confirmed 159.15; SPACE attempts 171.22
+  and 174.69; final summary and replay attempt 177.19.
+- Replay acknowledged by match_found 178.62; Thor CONFIRM attempted
+  192.14; Thor + CANCEL observed 193.13; M2 armed 210.66.
+- M2 victory confirmed 377.27; SPACE attempts 389.29 and 392.79;
+  final summary and normal termination 395.29.
+- Final console: "COMPLETE: two victories; stopped before third match."
+  Matches completed: 2; Rune attempts: 18; acknowledged: 18.
+
+Original SPACE template scores at attempts were 0.999–1.000;
+the first replay template score was 1.000 (threshold 0.800).
+The reported navigation path, Rune reset, and bounded normal
+termination passed for this session. No independent audit of the
+latest CSVs or video has been performed. The preceding two-match
+attempt ended at an unacknowledged final activation; the revised
+terminal-interruption exception was not exercised in this successful
+run because all 18 activations/cancellations were acknowledged.
+Long-duration reliability, unusual menus, storage-full behavior,
+and integrated emergency-stop/focus-loss paths remain unvalidated.
+No production GUI integration or unattended deployment established.
+Preserve the successful bounded build as the baseline; no runtime
+code changes in this milestone documentation.
