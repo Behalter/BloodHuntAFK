@@ -41,7 +41,7 @@ def run(profile, refit, keys, status, start_delay):
         fail("Healing settings must be finite.")
     if settings.HEAL_EVERY < 0 or settings.HEAL_DELAY_POST_F < 0:
         fail("Healing settings must be nonnegative.")
-    from bloodhunt import inputs, vision, winapi, settings
+    from bloodhunt import inputs, vision, winapi
     import cv2
     import numpy as np
     from bloodhunt.wave_state import Phase, Rune
@@ -51,6 +51,8 @@ def run(profile, refit, keys, status, start_delay):
     from scripts.shadow_monitor import ShadowMonitor
     from scripts.wave_action_preview import WaveActionPreview
 
+    if settings.PAUSE_KEY in {0x46, 0x20} or settings.QUIT_KEY in {0x46, 0x20} or settings.PAUSE_KEY == settings.QUIT_KEY:
+        fail("Pause and Stop must be distinct from F and Space.")
     if not settings.GAME_TITLE or not settings.GAME_CLASS:
         fail("Explicit game title and class are required.")
     if settings.ABILITY_KEY.lower() != "f":
@@ -91,6 +93,7 @@ def run(profile, refit, keys, status, start_delay):
     base_profile = profile
     profile = None
     nav_templates = {}
+    stop_templates = []
 
     args.output.mkdir(parents=True, exist_ok=False)
 
@@ -136,6 +139,7 @@ def run(profile, refit, keys, status, start_delay):
 
     screen = vision.Screen()
     start = time.monotonic()
+    arm_since = start
     status.profile = str(base_profile)
     armed = False
     prep_streak = 0
@@ -197,14 +201,14 @@ def run(profile, refit, keys, status, start_delay):
                     status.state = "paused before arming"
                     while keys.paused and not stop_requested() and not time_limit():
                         time.sleep(0.1)
-                    start = time.monotonic()
+                    arm_since = time.monotonic()
                     last = None
                     prep_streak = 0
                     continue
                 if not foreground():
                     outcome = "ABORTED: focus loss."
                     break
-                if not armed and not waiting_next and now > 120:
+                if not armed and not waiting_next and tick - arm_since > 120:
                     outcome = "ABORTED: no stable preparation/ready state within 120 seconds."
                     break
                 if last is not None and tick - last > 2.5:
@@ -227,7 +231,9 @@ def run(profile, refit, keys, status, start_delay):
                 if profile is None or profile.screen != (w, h):
                     profile = refit((w, h))
                     status.profile = str(profile)
-                    nav_templates = {t.name.lower(): t for t in profile.templates()
+                    templates = profile.templates()
+                    stop_templates = [t for t in templates if t.kind == "stop"]
+                    nav_templates = {t.name.lower(): t for t in templates
                                      if t.name.lower() in {"click_skip", "click_one_more_round",
                                                            "routine_storage_full"}}
                     if set(nav_templates) != {"click_skip", "click_one_more_round", "routine_storage_full"}:
@@ -236,6 +242,9 @@ def run(profile, refit, keys, status, start_delay):
                     if not all(t.locked for t in nav_templates.values()):
                         outcome = "ABORTED: original templates must be position locked."
                         break
+                if vision.best(vision.shrink(frame), stop_templates):
+                    outcome = "STOPPED: original profile stop template recognized."
+                    break
                 image = normalize(frame)
                 d = detect(image, wave)
                 p = post.classify(image)
@@ -257,7 +266,7 @@ def run(profile, refit, keys, status, start_delay):
                     inputs.click(*screen.to_screen(point))
                     return True
 
-                # Only after the first replay click. No F or other navigation
+                # Only after a replay click. No F or other navigation
                 # while waiting for the next match; only a verified Thor CONFIRM.
                 if waiting_next:
                     if tick - next_since >= 120:
@@ -285,7 +294,7 @@ def run(profile, refit, keys, status, start_delay):
                                 break
                             hero_attempted = True
                             status.stats["click_confirm_thor"] += 1
-                        if cancel_streak >= 2 and not hero_verified:
+                        if cancel_streak >= 2 and hero_attempted and not hero_verified:
                             hero_verified = True
                             log("confirm_thor", "acknowledged", "Thor + CANCEL observed")
                     else:
@@ -571,6 +580,7 @@ def run(profile, refit, keys, status, start_delay):
         outcome = "ABORTED: Ctrl+C."
     except Exception as exc:
         outcome = f"ABORTED: {type(exc).__name__}: {exc}"
+        raise
     finally:
         screen.sct.close()
         status.state, status.next_f = "stopped", None
