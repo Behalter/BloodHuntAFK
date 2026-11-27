@@ -602,3 +602,23 @@ passed on all three recordings; visual classification is provisional.
 No live input delivery, live post-match recognition, button
 availability, or autonomous match operation has been validated.
 No code changes in this review. Windows unit baseline 89/89.
+
+
+## Local Windows input diagnostics
+
+User confirmed an elevated PowerShell/Python session (IsUserAnAdmin
+returned True). The local one-shot keyboard diagnostic (commit
+4c620e5911ba50b59e8362df5daf073554ac88e6) reported exactly one F
+key-down and one F key-up. The local synthetic match diagnostic
+(commit eaaa56f39641830e4cd8e52af279862d2c7e778b) reported PASS:
+9 local presses, 9 key pairs, 9 fixture state acknowledgements.
+The reported acknowledgement order was activate, followed by four
+cancel/activate pairs. These are user-reported Windows execution
+results, not game input tests. The harness uses synthetic phase labels
+and changes fixture Rune state in response to local Tk key events.
+It does not validate game recognition, game input acceptance,
+actual game ability acknowledgement, or autonomous game operation.
+The normal completion path passed; real focus-loss and operator-stop
+paths still require separate local tests. The harness checks focus
+before sending but cannot make the check and input delivery atomic.
+No changes to existing runtime bot modules in this validation.
