@@ -35,6 +35,7 @@ def run(profile, refit, keys, status, start_delay):
     from scripts.lifecycle_timeline import TimelineRow, combine
     from scripts.shadow_monitor import ShadowMonitor
     from scripts.wave_action_preview import WaveActionPreview
+    from scripts.pause_recovery import ResumeGate, pending_reconciled
 
     if settings.PAUSE_KEY in {0x46, 0x20} or settings.QUIT_KEY in {0x46, 0x20} or settings.PAUSE_KEY == settings.QUIT_KEY:
         fail("Pause and Stop must be distinct from F and Space.")
@@ -86,7 +87,7 @@ def run(profile, refit, keys, status, start_delay):
                     time.monotonic() - status.started >= settings.MAX_HOURS * 3600)
     app_log("Wave-aware mode: manual first match; automatic replay; original MAX_HOURS applies.")
     app_log("Shop choices remain manual. Gear routines and auto-refocus are disabled in wave mode.")
-    app_log("Pause before arming can resume. Pause/focus loss after arming stops the session safely.")
+    app_log("F8 pauses input; resume waits for game focus and fresh recognition. Unpaused focus loss stops.")
     app_log(f"Wave reports: {args.output}")
     if start_delay and not wait(start_delay):
         status.state = "stopped"
@@ -139,6 +140,8 @@ def run(profile, refit, keys, status, start_delay):
     next_nav_at = 0.
     cooldown_since = None
     last_heal = None
+    recovery = None
+    recovery_since = None
     outcome = "STOPPED: MAX_HOURS reached."
     try:
         with (args.output / "samples.csv").open("x", newline="", encoding="utf-8") as sf, \
@@ -163,15 +166,37 @@ def run(profile, refit, keys, status, start_delay):
                     outcome = "ABORTED: operator stop."
                     break
                 if keys.paused:
-                    if armed or waiting_next:
-                        outcome = "STOPPED: paused after arming; restart at a fresh match."
-                        break
-                    status.state = "paused before arming"
-                    while keys.paused and not stop_requested() and not time_limit():
+                    log("", "paused", "operator pause; no input")
+                    while not stop_requested() and not time_limit():
+                        status.state = "paused" if keys.paused else "resume: waiting for game focus"
+                        if not keys.paused and foreground():
+                            break
                         time.sleep(0.1)
-                    arm_since = time.monotonic()
+                    else:
+                        if keys.quit:
+                            outcome = "ABORTED: operator stop."
+                        break
+                    resumed = time.monotonic()
+                    # Discard pre-pause observation streaks, not action history.
                     last = None
-                    prep_streak = 0
+                    prep_streak = hero_streak = cancel_streak = 0
+                    summary_streak = victory_streak = nav_streak = 0
+                    nav_candidate = closeout_previous = None
+                    uncertain_since = cooldown_since = last_heal = None
+                    arm_since = resumed
+                    if waiting_next:
+                        next_since = resumed
+                    if closeout_since is not None:
+                        closeout_since = resumed
+                    next_nav_at = max(next_nav_at, resumed)
+                    monitor = ShadowMonitor(None, detector=lambda d, _: d)
+                    preview = WaveActionPreview()
+                    recovery = ResumeGate() if armed and not waiting_next and closeout_since is None else None
+                    recovery_since = resumed if recovery is not None else None
+                    if pending is not None:
+                        # The old acknowledgement clock is no longer meaningful.
+                        pending = (*pending[:4], resumed + 30, 0)
+                    log("", "resume", "fresh recognition; action counters and ending latch preserved")
                     continue
                 if not foreground():
                     outcome = "ABORTED: focus loss."
@@ -192,9 +217,14 @@ def run(profile, refit, keys, status, start_delay):
                     outcome = "ABORTED: invalid game capture geometry."
                     break
                 frame = screen.grab()
+                if stop_requested():
+                    outcome = "ABORTED: operator stop."
+                    break
+                if keys.paused:
+                    continue  # discard captured frame and enter pause recovery
                 if (not foreground() or winapi.game_area() != area
-                        or winapi._game_hwnd != hwnd or stop_requested() or keys.paused):
-                    outcome = "ABORTED: focus, geometry, or stop changed during capture."
+                        or winapi._game_hwnd != hwnd):
+                    outcome = "ABORTED: focus or geometry changed during capture."
                     break
                 if profile is None or profile.screen != (w, h):
                     profile = refit((w, h))
@@ -258,6 +288,8 @@ def run(profile, refit, keys, status, start_delay):
                             point = (round(1685 * w / 1920), round(729 * h / 1080))
                             log("confirm_thor", "attempt", "Thor + Nightmare 1 + CONFIRM")
                             if not click_local(point):
+                                if keys.paused and not keys.quit:
+                                    continue
                                 outcome = "ABORTED: hero confirmation preflight failed."
                                 break
                             hero_attempted = True
@@ -331,7 +363,7 @@ def run(profile, refit, keys, status, start_delay):
                         uncertain_since = None
                     elif uncertain_since is None:
                         uncertain_since = tick
-                    elif tick - uncertain_since >= 3:
+                    elif recovery is None and tick - uncertain_since >= 3:
                         reason = "HUD uncertain for three seconds"
                     # A fast boss kill can remove the HUD before the final
                     # activation is acknowledged. Timeout may precede the
@@ -344,6 +376,7 @@ def run(profile, refit, keys, status, start_delay):
                         reason = "final activation timeout with HUD absent"
                     if reason is not None:
                         closeout_since = tick
+                        recovery = recovery_since = None
                         log("", "input_disabled", reason + "; Rune input latched off")
                         if pending is not None:
                             terminal_interruption = terminal_candidate
@@ -402,17 +435,19 @@ def run(profile, refit, keys, status, start_delay):
                         if not (all_confirmed or final_interrupted):
                             outcome = "STOPPED: victory observed but nonterminal Rune attempt unacknowledged."
                             break
+                        t, score, pos = replay_hit
+                        point = vision.click_point(t, pos, profile.click_at)
+                        if not click_local(point):
+                            if keys.paused and not keys.quit:
+                                continue
+                            outcome = "ABORTED: replay preflight failed."
+                            break
                         completed += 1
                         status.stats["victories"] += 1
                         log("", "match_complete",
                             "victory and final summary confirmed; final Rune unacknowledged"
                             if final_interrupted else "victory and final summary confirmed")
-                        t, score, pos = replay_hit
-                        point = vision.click_point(t, pos, profile.click_at)
                         log("replay", "attempt", f"original template score={score:.3f}")
-                        if not click_local(point):
-                            outcome = "ABORTED: replay preflight failed."
-                            break
                         status.stats["click_one_more_round"] += 1
                         waiting_next = True
                         next_since = time.monotonic()
@@ -436,10 +471,14 @@ def run(profile, refit, keys, status, start_delay):
                             outcome = "STOPPED: bounded SPACE advancement limit."
                             break
                         if not safe_input() or winapi.user32.GetAsyncKeyState(0x20) & 0x8000:
+                            if keys.paused and not keys.quit:
+                                continue
                             outcome = "ABORTED: SPACE preflight failed."
                             break
                         log("space", "attempt", f"original SPACE template score={skip_hit[1]:.3f}")
                         if not safe_input():
+                            if keys.paused and not keys.quit:
+                                continue
                             outcome = "ABORTED: focus/stop changed before SPACE."
                             break
                         inputs.press("space")
@@ -452,6 +491,34 @@ def run(profile, refit, keys, status, start_delay):
                         outcome = "ABORTED: operator stop."
                         break
                     continue
+
+                # Recover from current visible state, even within the same wave.
+                # A pending tap is never repeated merely because it was paused.
+                if recovery is not None:
+                    if tick - recovery_since >= 30:
+                        outcome = "STOPPED: resume state not verified within 30 seconds."
+                        break
+                    if not recovery.observe(row.screen, row.visible_rune):
+                        status.state = "resume: verifying current phase and Rune"
+                        if not wait(max(0, 0.5 - (time.monotonic() - tick))):
+                            outcome = "ABORTED: operator stop."
+                            break
+                        continue
+                    if pending is not None:
+                        intent, phase, before, expected, deadline, streak = pending
+                        if not pending_reconciled(row.screen, row.visible_rune, phase, expected):
+                            outcome = "STOPPED: pre-pause Rune tap unresolved; no automatic retry."
+                            break
+                        acknowledged += 1
+                        total_acknowledged += 1
+                        status.stats["Rune acknowledgements"] += 1
+                        if intent == "cancel":
+                            confirmed_cancels += 1
+                        log(intent, "reconciled", "three fresh expected HUD observations after pause; delivery causation unknown")
+                        pending = None
+                    log("", "recovered", f"{row.screen}/{row.visible_rune}; fresh advisor")
+                    recovery = recovery_since = None
+                    uncertain_since = None
 
                 # Mask overlays and uncertain frames before the existing advisor.
                 masked = d if valid else replace(d, phase=Phase.UNKNOWN, rune=Rune.UNKNOWN)
@@ -500,15 +567,19 @@ def run(profile, refit, keys, status, start_delay):
                         break
                     if (not safe_input()
                             or winapi.user32.GetAsyncKeyState(0x46) & 0x8000):
+                        if keys.paused and not keys.quit:
+                            continue
                         outcome = "ABORTED: input preflight failed."
                         break
-                    attempts += 1
-                    total_attempts += 1
-                    log(proposal.intent, "attempt", "one F tap; delivery not yet acknowledged")
                     if not safe_input():
+                        if keys.paused and not keys.quit:
+                            continue
                         outcome = "ABORTED: stop or focus loss before dispatch."
                         break
                     inputs.press("f")
+                    attempts += 1
+                    total_attempts += 1
+                    log(proposal.intent, "attempt", "one F tap; delivery not yet acknowledged")
                     status.stats["F presses"] += 1
                     pending = (proposal.intent, spec[0], spec[1], spec[2],
                                time.monotonic() + 3, 0)
@@ -530,6 +601,8 @@ def run(profile, refit, keys, status, start_delay):
                     vk = winapi.NAME_VKS.get(settings.HEAL_KEY.lower())
                     if (vk is None or vk in {0x46, 0x20, settings.PAUSE_KEY, settings.QUIT_KEY}
                             or not safe_input() or winapi.user32.GetAsyncKeyState(vk) & 0x8000):
+                        if keys.paused and not keys.quit:
+                            continue
                         outcome = "ABORTED: healing preflight failed."
                         break
                     inputs.press(settings.HEAL_KEY)
