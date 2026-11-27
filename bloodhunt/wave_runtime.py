@@ -142,6 +142,7 @@ def run(profile, refit, keys, status, start_delay):
     last_heal = None
     recovery = None
     recovery_since = None
+    recovery_origin = None
     smelt_used = False
     storage_streak = 0
     replay_clicks = 0
@@ -199,6 +200,7 @@ def run(profile, refit, keys, status, start_delay):
                     preview = WaveActionPreview()
                     recovery = ResumeGate() if armed and not waiting_next and closeout_since is None else None
                     recovery_since = resumed if recovery is not None else None
+                    recovery_origin = "pause" if recovery is not None else None
                     if pending is not None:
                         # The old acknowledgement clock is no longer meaningful.
                         pending = (*pending[:4], resumed + 30, 0)
@@ -437,7 +439,18 @@ def run(profile, refit, keys, status, start_delay):
                     elif uncertain_since is None:
                         uncertain_since = tick
                     elif recovery is None and tick - uncertain_since >= 3:
-                        reason = "HUD uncertain for three seconds"
+                        if pending is not None:
+                            # Do not retry an unresolved tap. Preserve the
+                            # existing terminal-interruption/closeout rules.
+                            reason = "HUD uncertain with Rune acknowledgement pending"
+                        else:
+                            # Missing HUD alone is not proof of match ending.
+                            # Retain the advisor's phase and one-shot history.
+                            recovery = ResumeGate()
+                            recovery_since = uncertain_since
+                            recovery_origin = "hud"
+                            cooldown_since = last_heal = None
+                            log("", "hud_suspended", "HUD uncertain for three seconds; waiting for fresh gameplay or ending evidence")
                     # A fast boss kill can remove the HUD before the final
                     # activation is acknowledged. Timeout may precede the
                     # three-second uncertainty timer; latch off F now, not
@@ -449,7 +462,7 @@ def run(profile, refit, keys, status, start_delay):
                         reason = "final activation timeout with HUD absent"
                     if reason is not None:
                         closeout_since = tick
-                        recovery = recovery_since = None
+                        recovery = recovery_since = recovery_origin = None
                         log("", "input_disabled", reason + "; Rune input latched off")
                         if pending is not None:
                             terminal_interruption = terminal_candidate
@@ -599,10 +612,19 @@ def run(profile, refit, keys, status, start_delay):
                 # A pending tap is never repeated merely because it was paused.
                 if recovery is not None:
                     if tick - recovery_since >= 30:
-                        outcome = "STOPPED: resume state not verified within 30 seconds."
+                        outcome = ("STOPPED: HUD recovery not verified within 30 seconds."
+                                   if recovery_origin == "hud" else
+                                   "STOPPED: resume state not verified within 30 seconds.")
                         break
                     if not recovery.observe(row.screen, row.visible_rune):
-                        status.state = "resume: verifying current phase and Rune"
+                        if recovery_origin == "hud":
+                            # Keep the continuous observation clock and clear
+                            # raw streaks without generating any new proposals.
+                            masked = replace(d, phase=Phase.UNKNOWN, rune=Rune.UNKNOWN)
+                            preview.observe(monitor.feed(now, masked))
+                            status.state = "HUD recovery: waiting for stable phase and Rune"
+                        else:
+                            status.state = "resume: verifying current phase and Rune"
                         if not wait(max(0, 0.5 - (time.monotonic() - tick))):
                             outcome = "ABORTED: operator stop."
                             break
@@ -619,8 +641,10 @@ def run(profile, refit, keys, status, start_delay):
                             confirmed_cancels += 1
                         log(intent, "reconciled", "three fresh expected HUD observations after pause; delivery causation unknown")
                         pending = None
-                    log("", "recovered", f"{row.screen}/{row.visible_rune}; fresh advisor")
-                    recovery = recovery_since = None
+                    log("", "hud_recovered" if recovery_origin == "hud" else "recovered",
+                        f"{row.screen}/{row.visible_rune}; "
+                        + ("prior phase/action history preserved" if recovery_origin == "hud" else "fresh advisor"))
+                    recovery = recovery_since = recovery_origin = None
                     uncertain_since = None
 
                 # Mask overlays and uncertain frames before the existing advisor.
