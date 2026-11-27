@@ -45,8 +45,6 @@ MAIN = [
     ("Wave-aware combat (authorized testing)", [
         ("WAVE_AWARE", "Use wave-aware mode", ""),
         ("WAVE_AUTHORIZED_TEST", "Authorized test environment", ""),
-        ("WAVE_REFERENCE", "Wave reference video", ""),
-        ("WAVE_SCREEN_REFERENCE", "Screen reference video", ""),
         ("WAVE_HEAL", "Enable experimental healing", ""),
     ]),
     ("Ability (Thor's Awakening Rune)", [
@@ -75,7 +73,7 @@ MAIN = [
         ("UNDO_KEY", "Undo a click (routine record)", ""),
     ]),
 ]
-HIDDEN = {"MATCH_SCALE"}                      # the crops are aligned to it: changing it lowers every score
+HIDDEN = {"MATCH_SCALE", "WAVE_REFERENCE", "WAVE_SCREEN_REFERENCE"}  # retain legacy values without showing unused fields
 GAME_KEYS = {"ABILITY_KEY", "HEAL_KEY"}       # keys the bot presses in the game (pydirectinput names)
 RULES = {                                     # numbers are "0 or more" unless listed here
     "ABILITY_PRESSES": {"whole": True, "low": 1},
@@ -628,9 +626,9 @@ class App:
         if values.get("WAVE_AWARE"):
             if not values.get("WAVE_AUTHORIZED_TEST"):
                 wrong("WAVE_AUTHORIZED_TEST", "authorization required")
-            for name in ("WAVE_REFERENCE", "WAVE_SCREEN_REFERENCE"):
-                if not values.get(name, "").strip():
-                    wrong(name, "reference video required")
+            from scripts.wave_templates import BUNDLE_RELATIVE
+            if not (HERE / BUNDLE_RELATIVE).is_file():
+                wrong("WAVE_AWARE", f"missing {BUNDLE_RELATIVE}")
         if "F_DURATION" in values and "F_COOLDOWN" in values and values["F_DURATION"] + values["F_COOLDOWN"] <= 0:
             wrong("F_COOLDOWN", "lasts + cooldown must be more than 0")
         if values.get("ABILITY_KEY") and values.get("ABILITY_KEY") == values.get("HEAL_KEY"):
