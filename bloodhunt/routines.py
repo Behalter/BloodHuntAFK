@@ -106,6 +106,58 @@ def run(name, steps, screen, keys):
     return True
 
 
+def run_guarded(name, steps, screen, guard):
+    """Reuse the original profile sequence without refocus or blind resume.
+
+    guard() checks operator stop/pause, exact window and capture geometry,
+    and the session limit. Interruption aborts the sequence, including during
+    waits or rating typing. The original timed-mode run() is unchanged.
+    A single click/key tap already in progress is allowed to finish.
+    """
+    check_typing(name, steps)
+    w, h = screen.size
+    # Validate all click coordinates before the first action.
+    if any("click" in s and not (0 <= s["click"][0] < w and 0 <= s["click"][1] < h)
+           for s in steps):
+        log(f"routine {name}: invalid click coordinates")
+        return False
+
+    def wait_checked(seconds):
+        end = time.monotonic() + seconds
+        while True:
+            if not guard():
+                return False
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                return True
+            time.sleep(min(0.05, remaining))
+
+    log(f"guarded routine {name}: {len(steps)} steps")
+    for i, step in enumerate(steps, 1):
+        if not guard():
+            return False
+        if "click" in step:
+            if winapi.mouse_down():
+                return False
+            x, y = screen.to_screen(step["click"])
+            inputs.click(x, y)
+            log(f"  {i}/{len(steps)} {step['name']}: clicked {x},{y}")
+        elif "type" in step:
+            text = typed(step["type"])
+            for j, ch in enumerate(text):
+                if not wait_checked(cfg.TYPE_GAP if j else 0):
+                    return False
+                inputs.press(inputs.key_for(ch))
+            log(f"  {i}/{len(steps)} {step['name']}: typed {text}")
+        else:
+            inputs.press(step["key"])
+            log(f"  {i}/{len(steps)} {step['name']}: pressed {step['key']}")
+        if not wait_checked(step["wait"]):
+            return False
+    log(f"guarded routine {name} done")
+    return True
+
+
 def _text(img, text, org, scale=0.8, color=MAGENTA):
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, BLACK, 5, cv2.LINE_AA)
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, 2, cv2.LINE_AA)
