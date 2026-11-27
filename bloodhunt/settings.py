@@ -77,3 +77,10 @@ BACKUP_ROUTINE_AFTER = 3    # One more round still there after this many clicks 
 STUCK_AFTER     = 600       # seconds with nothing recognised -> save a screenshot to debug\
 STUCK_SHOTS_MAX = 6         # ...at most this many in a row (6 x 10 min = 1 hour), then stop saving them
 MAX_HOURS       = 12        # stop after this many hours (0 = run until stopped)
+
+# ── Wave-aware mode ─────────────────────────────────────────────────────────
+WAVE_AWARE = False          # use visual wave and Rune recognition instead of the original fixed timers
+WAVE_AUTHORIZED_TEST = False # enable only in an explicitly authorized test environment
+WAVE_REFERENCE = ""         # path to calibrated wave reference recording
+WAVE_SCREEN_REFERENCE = ""  # path to calibrated results and hero reference recording
+WAVE_HEAL = False           # optional healing during observed combat cooldown; experimental
