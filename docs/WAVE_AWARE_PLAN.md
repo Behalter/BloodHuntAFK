@@ -649,3 +649,34 @@ in the reported session, not frame-level accuracy or button readiness.
 The new live CSVs have not yet been inspected. No game input was sent
 by the monitor; actual game acceptance and autonomous operation remain
 unverified. No runtime bot modules changed.
+
+
+## Independent live CSV structural audit
+
+Both uploaded live CSVs were read and checked directly. 1144 sample rows,
+76 segment rows, segment sample sum 1144. Reconstructed segments by
+screen change or gap >1.25s (2.5 / 2 Hz); labels, counts, and endpoints
+agree with the supplied segment CSV (timestamp tolerance 1e-9s).
+Timestamps strictly increasing, no duplicates. Mean interval 0.500372s,
+maximum 0.545753s. 932 recognized, 212 unknown (81.47% coverage);
+145 unknown before first match_found, leaving 932/999 (93.29%) after
+that point. No classifier_disagreement or unresolved_screen_markers
+rows. All 45 blessing_shop rows have raw preparation, raw Rune unknown
+and visible Rune unknown. All 503 non-preparation/non-combat rows have
+visible Rune unknown. Combat: 389 rows (361 active, 10 cooldown,
+18 ready); preparation: 252 rows (143 active, 47 cooldown, 61 ready,
+1 unknown). These are observed classifications, not ground truth.
+
+Between matches, three match_found samples at 373.306045–374.306759s
+are followed by one results sample and three final_summary samples
+before unknown and map_loading. A screen label alone is not proof of
+button availability or lifecycle reversal. The raw evidence includes
+victory_header in those match_found samples and summary;victory_header
+in the later final_summary samples. No screenshots or synchronized
+ground-truth labels supplied for this live session. No inference of
+game input delivery or actual ability response latency from these CSVs.
+
+Disposition: live read-only reporting and structural audit passed.
+Local input and fixture acknowledgements passed separately. No live
+autonomous operation validated; no additional manual session required
+for this structural audit. No runtime changes in this review.
