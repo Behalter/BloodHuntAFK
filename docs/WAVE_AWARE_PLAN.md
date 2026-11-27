@@ -680,3 +680,22 @@ Disposition: live read-only reporting and structural audit passed.
 Local input and fixture acknowledgements passed separately. No live
 autonomous operation validated; no additional manual session required
 for this structural audit. No runtime changes in this review.
+
+
+## Two-match local lifecycle diagnostic
+
+User-reported Windows execution of scripts/local_lifecycle_diagnostic.py
+(commit 3acceb6a5759ce0e6f55d08000d6e44279ece448) completed with
+"PASS: 2 fixture matches, 18 local key pairs, 18 state acknowledgements,
+2 local button acknowledgements." Both fixture matches reported nine
+acknowledgements, with the expected activate and four cancel/activate
+pairs. The local next-match and confirm button callbacks acknowledged
+between matches. The fixture resets its monitor, preview and audit
+instances before match two and terminates its input loop after match two.
+Navigation is driven by a scripted fixture schedule, not a screen-driven
+controller; stale labels are included in the schedule but this does not
+establish a general-purpose lifecycle state machine. No game input,
+game button readiness, or actual game response has been validated.
+The local normal path is complete; prior single-match abort tests
+remain the evidence for stop and focus-loss behavior. No further
+repetition of these local normal-path diagnostics is needed.
