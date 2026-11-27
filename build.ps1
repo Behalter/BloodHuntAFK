@@ -7,13 +7,16 @@ dist\BloodHuntAFK-<version>.zip. Run it from this folder:
     powershell -ExecutionPolicy Bypass -File build.ps1 -NoAdmin     (test build: the exes don't ask for admin)
 
 It installs the requirements and PyInstaller into .venv (made if missing). Only these go in the zip:
-settings.py, README.md, and each profile's profile.json and templates\ (NAME.png + NAME.json).
+settings.py, README.md, each profile's profile.json and templates\ (NAME.png + NAME.json),
+and the 16x9 wave_templates.npz recognition bundle.
 Never shots\, routines\, debug\ or bot.log: those show your in-game UID.
 GitHub Actions runs this same script for releases (.github\workflows\release.yml).
 #>
 param([string]$Version = "", [switch]$NoAdmin)
 
 Set-Location $PSScriptRoot
+$waveBundle = "profiles\16x9\wave_templates.npz"
+if (-not (Test-Path $waveBundle -PathType Leaf)) { throw "Missing required wave recognition bundle: $waveBundle" }
 $py = ".venv\Scripts\python.exe"
 if (-not (Test-Path $py)) {
     python -m venv .venv
@@ -41,6 +44,12 @@ foreach ($p in Get-ChildItem profiles -Directory) {
     Copy-Item "$($p.FullName)\profile.json" $dst -ErrorAction Stop
     Get-ChildItem "$($p.FullName)\templates" -File -Include *.png, *.json -Recurse |
         Copy-Item -Destination "$dst\templates" -ErrorAction Stop
+}
+
+# The runtime loads this from the release folder, not from PyInstaller's internal data.
+Copy-Item $waveBundle "$out\profiles\16x9\wave_templates.npz" -ErrorAction Stop
+if ((Get-FileHash $waveBundle -Algorithm SHA256).Hash -ne (Get-FileHash "$out\profiles\16x9\wave_templates.npz" -Algorithm SHA256).Hash) {
+    throw "Packaged wave recognition bundle differs from the source"
 }
 
 $zip = "dist\BloodHuntAFK-$Version.zip"
