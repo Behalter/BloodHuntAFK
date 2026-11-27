@@ -388,3 +388,68 @@ capture, inputs, or new regression tests were made in this increment.
 The verified Windows baseline remains 60 tests. Additional footage
 covering the final summary through the next hero selection would
 close the remaining visual evidence gap.
+
+
+## Recorded match-to-match transition — November 26, 2026
+
+New uploaded source: `clip_1,795,724,137,367.mp4`, 1920x1080,
+124.317s duration. Inspected sampled frames throughout the clip and
+full-resolution detail frames. The source covers the preceding boss
+preparation, victory, post-match screens, next hero selection, loading,
+first preparation, and first combat. Sampled timestamps (not exact
+transition or input times):
+
+| Seconds | Observed screen |
+|---:|---|
+| 8 | DRACULA INCOMING with BLESSING SHOP overlay |
+| 28 | Full-screen VICTORY |
+| 31 | MVP animation |
+| 36 | MVP statistics |
+| 40 | Progression / acquired gear |
+| 41 | Event rewards |
+| 45 | Final summary with ONE MORE ROUND and PREPARE |
+| 50 | MATCH FOUND! overlay |
+| 55 | BLOOD-NIGHT NEW YORK loading |
+| 61 | BLOOD HUNT-NIGHTMARE 1; THOR selected; CONFIRM |
+| 65 | THOR confirmed; CANCEL visible; countdown continues |
+| 80 | Next match HUD |
+| 85 | VAMPIRES INCOMING with BLESSING SHOP |
+| 89 | VAMPIRES INCOMING, 4.8s, normal HUD visible |
+| 95 | DEFEND THE AREA AND SURVIVE |
+
+Exploratory same-clip fixed-crop grayscale normalized correlation
+(TM_CCOEFF_NORMED). Reference frames at 45, 50, 61, 65, 85 seconds.
+Sequential decode sampled at >=0.49s intervals, 248 observations
+from 0 to 123.742s. Threshold 0.80 is exploratory, not production
+calibration. Results:
+
+| Marker | Hits | Sampled hit interval(s), s | Minimum hit score |
+|---|---:|---|---:|
+| ONE MORE ROUND | 7 | 45.11–48.11 | 0.936 |
+| MATCH FOUND! | 3 | 49.64–50.65 | 0.818 |
+| BLOOD HUNT-NIGHTMARE 1 | 38 | 60.19–78.69 | 0.915 |
+| THOR name | 38 | 60.19–78.69 | 0.983 |
+| CONFIRM YOUR HERO | 5 | 60.19–64.18, intermittent | 0.806 |
+| CONFIRM | 5 | 60.68–62.68 | 0.903 |
+| CANCEL | 32 | 63.18–78.69 | 0.997 |
+| BLESSING SHOP | 9 | 7.03–9.53; 85.20–86.21 | 0.999 |
+
+The shop match at 8s was independently visually checked against
+the source frame. The shop is not exclusive to initial preparation:
+it also appears before the preceding boss, with different cards.
+Treat an obscured HUD as uncertain, not as a reliable Rune state.
+The CONFIRM YOUR HERO text persists after confirmation and is
+background-sensitive; it is not a reliable independent indication
+of confirmation. The hero name and mode header are more stable in
+this sample. No evidence that hero selection always defaults to
+Thor, that the game accepts a particular input, or that visible
+labels are necessarily actionable. The loading screen was visually
+observed but not quantitatively tested. All correlations use
+same-clip references; independent cross-recording validation and
+frame-level ground truth remain outstanding for these new markers.
+
+No production code, input handling, or tests changed. Verified
+Windows baseline remains 60. This clip supplies the missing
+visual examples; no additional recording is needed for the
+current investigation. Future work can remain offline and
+read-only, evaluating screen recognition on recorded footage.
