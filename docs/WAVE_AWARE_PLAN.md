@@ -453,3 +453,53 @@ Windows baseline remains 60. This clip supplies the missing
 visual examples; no additional recording is needed for the
 current investigation. Future work can remain offline and
 read-only, evaluating screen recognition on recorded footage.
+
+
+## Post-match classifier baseline and three-recording replay
+
+User Windows run: **77/77 tests passed in 0.720s**, including all
+17 new classifier tests. Classifier commit 849197999114a367c1b66b9682486e03e02ff615,
+tests commit 2a8204d52215898b14534808fd6f3bd3b9edbd7d.
+Replay used a local classifier copy with git blob
+880722521d32486ea6d124a14149caf32deaf408, verified against GitHub.
+References from clip_1,795,724,137,367.mp4; threshold 0.85 unchanged.
+OpenCV 4.13.0, FFmpeg fps=1, 1920x1080 BGR, full duration of each
+recording, nominal output sample seconds (not exact source PTS).
+No live capture or input.
+
+| Classification | First clip | Second clip | Third clip |
+|---|---:|---:|---:|
+| map_loading | 2 | 3 | 2 |
+| hero_selection | 18 | 14 | 19 |
+| match_found | 0 | 1 | 2 |
+| blessing_shop | 0 | 19 | 5 |
+| victory_banner | 2 | 2 | 2 |
+| mvp | 9 | 8 | 7 |
+| progression | 1 | 2 | 2 |
+| results | 3 | 5 | 5 |
+| final_summary | 2 | 4 | 5 |
+| unknown | 173 | 235 | 75 |
+| Total | 210 | 293 | 124 |
+
+627 sampled frames; 144 non-unknown, 483 unknown. Exact resampled
+frame contact sheets included all non-unknown samples and their
+immediate neighbors (42 + 77 + 62 = 181 visually inspected samples).
+Both independent clips recognize loading, hero selection, victory,
+MVP, progression, generic results and final summary. The second
+clip additionally recognizes five distinct Blessing Shop intervals
+and Match Found. No non-unknown sample reviewed was ordinary
+unobscured combat. This is a targeted visual audit, not exhaustive
+ground truth or a measured accuracy rate.
+
+Observed limitations: alternate map loading illustration is missed
+(first 2s, second 17s, third 57/59s); Match Found animation is
+intermittent (second 6/8s unknown; third 51/52s generic results
+despite overlay). MVP effects produce unknown frames (second 278s,
+third 32/35s). Early progression is generic results until acquired
+marker appears (first 204s, second 282s). The third clip returns
+generic results at 48s and 51–52s during transition, so per-frame
+labels alone do not establish a monotonic match lifecycle.
+Final summary is not evidence of button availability. No changes
+to classifier thresholds or production code in this increment.
+The next read-only review should preserve these uncertainties
+and distinguish raw frame labels from a retrospective timeline.
