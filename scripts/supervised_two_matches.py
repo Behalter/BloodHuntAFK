@@ -123,6 +123,9 @@ def main(argv=None):
     victory_streak = 0
     victory_observed = False
     attempts = acknowledged = 0
+    confirmed_cancels = 0
+    terminal_interruption = False
+    last_nav_report = -100.
     total_attempts = total_acknowledged = 0
     match = 1
     completed = 0
@@ -260,6 +263,9 @@ def main(argv=None):
                         summary_streak = victory_streak = 0
                         victory_observed = False
                         attempts = acknowledged = skip_count = nav_streak = 0
+                        confirmed_cancels = 0
+                        terminal_interruption = False
+                        last_nav_report = -100.
                         nav_candidate = None
                         next_nav_at = 0.
                         log("", "armed", "second match; fresh Rune controller")
@@ -281,9 +287,14 @@ def main(argv=None):
                             break
                         continue
 
-                # Closeout is a one-way latch. No input path can be reached
-                # after it is set, even if the combat HUD reappears.
+                # Closeout permanently disables Rune input for this match.
+                # Menu input still requires independently confirmed victory.
                 valid = row.screen in {"preparation", "combat"} and row.visible_rune != "unknown"
+                terminal_candidate = (
+                    pending is not None and pending[0] == "activate"
+                    and pending[1] == "combat" and confirmed_cancels == 4
+                    and attempts == acknowledged + 1
+                )
                 if closeout_since is None:
                     reason = None
                     if (d.phase in (Phase.MATCH_ENDING, Phase.POST_MATCH)
@@ -301,17 +312,33 @@ def main(argv=None):
                         uncertain_since = tick
                     elif tick - uncertain_since >= 3:
                         reason = "HUD uncertain for three seconds"
+                    # A fast boss kill can remove the HUD before the final
+                    # activation is acknowledged. Timeout may precede the
+                    # three-second uncertainty timer; latch off F now, not
+                    # terminate observation. Never grant a fake acknowledgement.
+                    if (reason is None and terminal_candidate
+                            and time.monotonic() > pending[4]
+                            and row.screen == "unknown"
+                            and row.reason == "no_positive_classification"):
+                        reason = "final activation timeout with HUD absent"
                     if reason is not None:
                         closeout_since = tick
                         log("", "input_disabled", reason + "; Rune input latched off")
                         if pending is not None:
-                            log(pending[0], "unacknowledged", "input disabled before acknowledgement")
+                            terminal_interruption = terminal_candidate
+                            log(pending[0], "unacknowledged",
+                                "possible terminal interruption; victory required"
+                                if terminal_interruption else
+                                "input disabled before acknowledgement")
                             pending = None
 
                 if closeout_since is not None:
                     if row.screen != closeout_previous:
-                        log("", "closeout", row.screen)
+                        log("", "closeout", f"{row.screen}; phase={row.raw_phase}; markers={row.markers}; {row.reason}")
                         closeout_previous = row.screen
+                    if row.screen in {"preparation", "combat", "blessing_shop"}:
+                        outcome = "STOPPED: gameplay returned after Rune input was disabled."
+                        break
                     victory_frame = (row.screen == "victory_banner" or
                                      (row.screen in {"progression", "results", "final_summary"}
                                       and "victory_header" in p.markers))
@@ -338,14 +365,26 @@ def main(argv=None):
                                              skip_dimmed=True)
                     skip_hit = vision.best(small, [nav_templates["click_skip"]],
                                            skip_dimmed=True)
+                    if tick - last_nav_report >= 5:
+                        scores = []
+                        for name in ("click_skip", "click_one_more_round"):
+                            t = nav_templates[name]
+                            score, _, contrast = vision.find(small, t)
+                            scores.append(f"{name}={score:.3f}/{vision.threshold(t):.3f}, contrast={contrast:.2f}")
+                        log("", "nav_evidence", f"victory={victory_observed}; " + "; ".join(scores))
+                        last_nav_report = tick
                     # Replay requires BOTH the independent summary classifier and
                     # the original active yellow button. No replay after match 2.
                     if summary_streak >= 2 and victory_observed and replay_hit:
-                        if attempts != acknowledged or attempts == 0:
-                            outcome = "STOPPED: victory observed but Rune attempts not all acknowledged."
+                        all_confirmed = attempts > 0 and attempts == acknowledged
+                        final_interrupted = terminal_interruption and attempts == acknowledged + 1
+                        if not (all_confirmed or final_interrupted):
+                            outcome = "STOPPED: victory observed but nonterminal Rune attempt unacknowledged."
                             break
                         completed += 1
-                        log("", "match_complete", "victory and final summary confirmed")
+                        log("", "match_complete",
+                            "victory and final summary confirmed; final Rune unacknowledged"
+                            if final_interrupted else "victory and final summary confirmed")
                         if match == 2:
                             outcome = "COMPLETE: two victories; stopped before third match."
                             break
@@ -416,6 +455,8 @@ def main(argv=None):
                     if streak >= 2:
                         acknowledged += 1
                         total_acknowledged += 1
+                        if intent == "cancel":
+                            confirmed_cancels += 1
                         log(intent, "acknowledged", "two subsequent expected HUD observations")
                         pending = None
                     else:
