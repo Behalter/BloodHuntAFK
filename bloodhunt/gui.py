@@ -42,6 +42,13 @@ LOG_LINES = 4000                    # the log box keeps this many lines (bot.log
 
 # The Settings tab: (box title, [(setting, label, unit)]). Everything else goes on the Advanced tab.
 MAIN = [
+    ("Wave-aware combat (authorized testing)", [
+        ("WAVE_AWARE", "Use wave-aware mode", ""),
+        ("WAVE_AUTHORIZED_TEST", "Authorized test environment", ""),
+        ("WAVE_REFERENCE", "Wave reference video", ""),
+        ("WAVE_SCREEN_REFERENCE", "Screen reference video", ""),
+        ("WAVE_HEAL", "Enable experimental healing", ""),
+    ]),
     ("Ability (Thor's Awakening Rune)", [
         ("ABILITY_KEY", "Key", ""),
         ("F_DURATION", "Lasts", "seconds"),
@@ -618,6 +625,12 @@ class App:
                 self.fields[target].show_error(text)
                 bad.append(self.fields[target])
 
+        if values.get("WAVE_AWARE"):
+            if not values.get("WAVE_AUTHORIZED_TEST"):
+                wrong("WAVE_AUTHORIZED_TEST", "authorization required")
+            for name in ("WAVE_REFERENCE", "WAVE_SCREEN_REFERENCE"):
+                if not values.get(name, "").strip():
+                    wrong(name, "reference video required")
         if "F_DURATION" in values and "F_COOLDOWN" in values and values["F_DURATION"] + values["F_COOLDOWN"] <= 0:
             wrong("F_COOLDOWN", "lasts + cooldown must be more than 0")
         if values.get("ABILITY_KEY") and values.get("ABILITY_KEY") == values.get("HEAL_KEY"):
