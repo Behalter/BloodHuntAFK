@@ -26,7 +26,7 @@ def run(profile, refit, keys, status, start_delay):
         fail("Healing settings must be finite.")
     if settings.HEAL_EVERY < 0 or settings.HEAL_DELAY_POST_F < 0:
         fail("Healing settings must be nonnegative.")
-    from bloodhunt import inputs, vision, winapi
+    from bloodhunt import inputs, vision, winapi, routines
     import cv2
     import numpy as np
     from bloodhunt.wave_state import Phase, Rune
@@ -86,7 +86,7 @@ def run(profile, refit, keys, status, start_delay):
         return bool(settings.MAX_HOURS and
                     time.monotonic() - status.started >= settings.MAX_HOURS * 3600)
     app_log("Wave-aware mode: manual first match; automatic replay; original MAX_HOURS applies.")
-    app_log("Shop choices remain manual. Gear routines and auto-refocus are disabled in wave mode.")
+    app_log(f"Shop choices remain manual. Guarded smelting: {bool(settings.RUN_ROUTINES)}; auto-refocus disabled.")
     app_log("F8 pauses input; resume waits for game focus and fresh recognition. Unpaused focus loss stops.")
     app_log(f"Wave reports: {args.output}")
     if start_delay and not wait(start_delay):
@@ -142,6 +142,12 @@ def run(profile, refit, keys, status, start_delay):
     last_heal = None
     recovery = None
     recovery_since = None
+    smelt_used = False
+    storage_streak = 0
+    replay_clicks = 0
+    last_replay_at = None
+    summary_verified = False
+    launch_intent = "replay"
     outcome = "STOPPED: MAX_HOURS reached."
     try:
         with (args.output / "samples.csv").open("x", newline="", encoding="utf-8") as sf, \
@@ -180,7 +186,7 @@ def run(profile, refit, keys, status, start_delay):
                     # Discard pre-pause observation streaks, not action history.
                     last = None
                     prep_streak = hero_streak = cancel_streak = 0
-                    summary_streak = victory_streak = nav_streak = 0
+                    summary_streak = victory_streak = nav_streak = storage_streak = 0
                     nav_candidate = closeout_previous = None
                     uncertain_since = cooldown_since = last_heal = None
                     arm_since = resumed
@@ -264,19 +270,82 @@ def run(profile, refit, keys, status, start_delay):
                     inputs.click(*screen.to_screen(point))
                     return True
 
-                # Only after a replay click. No F or other navigation
-                # while waiting for the next match; only a verified Thor CONFIRM.
+                def guarded_smelt():
+                    # The storage warning is checked by the caller on fresh
+                    # frames. The original sequence is not screen-verified
+                    # step by step; stop on any interruption.
+                    if not settings.RUN_ROUTINES or smelt_used:
+                        return False
+                    steps = profile.routines.get("storage_full")
+                    if not steps or not safe_input():
+                        return False
+                    status.state = "running guarded storage-full routine"
+                    log("storage_full", "attempt", "original profile sequence; rating=" + str(settings.SMELT_RATING))
+                    def guard():
+                        return (not stop_requested() and not keys.paused
+                                and not time_limit() and foreground()
+                                and winapi.game_area() == area and winapi._game_hwnd == hwnd)
+                    if not routines.run_guarded("storage_full", steps, screen, guard):
+                        return False
+                    status.stats["storage_full routines"] += 1
+                    log("storage_full", "sequence_done", "waiting for next-match recognition")
+                    return True
+
+                # Only after a verified replay or storage routine. No F
+                # until the next match is positively recognized.
                 if waiting_next:
                     if tick - next_since >= 120:
                         outcome = "STOPPED: replay/hero/preparation not confirmed within 120 seconds."
                         break
                     if row.screen in {"match_found", "map_loading", "hero_selection"}:
                         if not replay_seen:
-                            log("replay", "acknowledged", row.screen)
+                            log(launch_intent, "acknowledged", row.screen)
                         replay_seen = True
-                    if vision.best(vision.shrink(frame), [nav_templates["routine_storage_full"]]):
-                        outcome = "STOPPED: storage full; no gear changes."
-                        break
+                    small = vision.shrink(frame)
+                    storage_hit = vision.best(small, [nav_templates["routine_storage_full"]])
+                    storage_streak = storage_streak + 1 if storage_hit else 0
+                    if storage_hit:
+                        if replay_seen or smelt_used or not settings.RUN_ROUTINES:
+                            outcome = "STOPPED: storage warning after launch, repeat routine, or smelting disabled."
+                            break
+                        if storage_streak >= 2:
+                            if not guarded_smelt():
+                                outcome = "STOPPED: smelting interrupted or unavailable; inspect gear screen."
+                                break
+                            smelt_used = True
+                            launch_intent = "storage_full"
+                            last = None
+                            next_since = time.monotonic()
+                            storage_streak = 0
+                        if not wait(max(0, 0.5 - (time.monotonic() - tick))):
+                            outcome = "ABORTED: operator stop."
+                            break
+                        continue
+                    # Backup retries retain the original configured interval
+                    # and count, but a stuck replay alone cannot prove full
+                    # storage. Do not start destructive menu actions on it.
+                    if (not replay_seen and not smelt_used and settings.RUN_ROUTINES
+                            and settings.BACKUP_ROUTINE_AFTER > 0
+                            and row.screen == "final_summary"
+                            and "victory_header" in p.markers and "summary" in p.markers
+                            and last_replay_at is not None
+                            and tick - last_replay_at >= settings.REPEAT_CLICK_AFTER):
+                        retry = vision.best(small, [nav_templates["click_one_more_round"]], skip_dimmed=True)
+                        if retry:
+                            if replay_clicks >= settings.BACKUP_ROUTINE_AFTER:
+                                outcome = "STOPPED: replay retry threshold reached without positive storage warning."
+                                break
+                            t, score, pos = retry
+                            if not click_local(vision.click_point(t, pos, profile.click_at)):
+                                if keys.paused and not keys.quit:
+                                    continue
+                                outcome = "ABORTED: replay retry preflight failed."
+                                break
+                            replay_clicks += 1
+                            last_replay_at = time.monotonic()
+                            status.stats["click_one_more_round"] += 1
+                            log("replay", "retry", f"try {replay_clicks}; score={score:.3f}")
+                            continue
                     if row.screen == "hero_selection":
                         thor = hero_score(image, "thor") >= 0.90
                         confirm = hero_score(image, "confirm") >= 0.90
@@ -314,6 +383,10 @@ def run(profile, refit, keys, status, start_delay):
                         victory_observed = False
                         attempts = acknowledged = skip_count = nav_streak = 0
                         confirmed_cancels = 0
+                        smelt_used = summary_verified = False
+                        storage_streak = replay_clicks = 0
+                        last_replay_at = None
+                        launch_intent = "replay"
                         terminal_interruption = False
                         last_nav_report = -100.
                         nav_candidate = None
@@ -404,6 +477,8 @@ def run(profile, refit, keys, status, start_delay):
                                      and "victory_header" in p.markers
                                      and "summary" in p.markers)
                     summary_streak = summary_streak + 1 if summary_frame else 0
+                    if summary_streak >= 2 and victory_observed:
+                        summary_verified = True
                     if row.screen in {"match_found", "map_loading", "hero_selection"}:
                         outcome = "STOPPED: unexpected next-match screen before replay."
                         break
@@ -412,9 +487,34 @@ def run(profile, refit, keys, status, start_delay):
                         break
 
                     small = vision.shrink(frame)
-                    if vision.best(small, [nav_templates["routine_storage_full"]]):
-                        outcome = "STOPPED: storage full; no gear changes."
-                        break
+                    storage_hit = vision.best(small, [nav_templates["routine_storage_full"]])
+                    storage_streak = storage_streak + 1 if storage_hit else 0
+                    if storage_hit:
+                        if not settings.RUN_ROUTINES or smelt_used:
+                            outcome = "STOPPED: storage full; smelting disabled or already attempted."
+                            break
+                        if not summary_verified or not (attempts == acknowledged or
+                                (terminal_interruption and attempts == acknowledged + 1)):
+                            outcome = "STOPPED: storage warning without verified match closeout."
+                            break
+                        if storage_streak >= 2:
+                            if not guarded_smelt():
+                                outcome = "STOPPED: smelting interrupted or unavailable; inspect gear screen."
+                                break
+                            smelt_used = True
+                            completed += 1
+                            status.stats["victories"] += 1
+                            log("", "match_complete", "victory and final summary confirmed before storage routine")
+                            launch_intent = "storage_full"
+                            waiting_next = True
+                            next_since = time.monotonic()
+                            replay_seen = hero_verified = hero_attempted = False
+                            hero_streak = cancel_streak = prep_streak = storage_streak = 0
+                            last = None
+                        if not wait(max(0, 0.5 - (time.monotonic() - tick))):
+                            outcome = "ABORTED: operator stop."
+                            break
+                        continue
                     replay_hit = vision.best(small, [nav_templates["click_one_more_round"]],
                                              skip_dimmed=True)
                     skip_hit = vision.best(small, [nav_templates["click_skip"]],
@@ -449,6 +549,9 @@ def run(profile, refit, keys, status, start_delay):
                             if final_interrupted else "victory and final summary confirmed")
                         log("replay", "attempt", f"original template score={score:.3f}")
                         status.stats["click_one_more_round"] += 1
+                        replay_clicks = 1
+                        last_replay_at = time.monotonic()
+                        launch_intent = "replay"
                         waiting_next = True
                         next_since = time.monotonic()
                         replay_seen = hero_verified = hero_attempted = False
