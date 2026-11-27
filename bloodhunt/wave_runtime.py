@@ -6,7 +6,6 @@ The original timed runtime is untouched. Explicit authorization required.
 """
 import csv
 from dataclasses import asdict, replace
-from pathlib import Path
 import time
 from math import isfinite
 
@@ -18,21 +17,7 @@ def run(profile, refit, keys, status, start_delay):
 
     if not getattr(settings, "WAVE_AUTHORIZED_TEST", False):
         raise SystemExit("Wave-aware mode requires WAVE_AUTHORIZED_TEST in an authorized environment.")
-    def reference(name):
-        value = getattr(settings, name, "")
-        if not value:
-            raise SystemExit(f"Set {name} to the calibrated reference recording.")
-        path = Path(value).expanduser()
-        if not path.is_absolute():
-            path = HERE / path
-        if not path.is_file():
-            raise SystemExit(f"Reference recording not found: {path}")
-        return path
-    args = SimpleNamespace(
-        wave_reference=reference("WAVE_REFERENCE"),
-        screen_reference=reference("WAVE_SCREEN_REFERENCE"),
-        output=DEBUG / ("wave_session_" + stamp()),
-    )
+    args = SimpleNamespace(output=DEBUG / ("wave_session_" + stamp()))
     def fail(message):
         raise SystemExit(message)
     if not isfinite(settings.MAX_HOURS) or settings.MAX_HOURS < 0:
@@ -45,8 +30,8 @@ def run(profile, refit, keys, status, start_delay):
     import cv2
     import numpy as np
     from bloodhunt.wave_state import Phase, Rune
-    from scripts.analyze_video import Calibration, detect, normalize
-    from scripts.post_match_detector import PostMatchDetector
+    from scripts.analyze_video import detect, normalize
+    from scripts.wave_templates import BUNDLE_RELATIVE, load_bundle, hero_crop
     from scripts.lifecycle_timeline import TimelineRow, combine
     from scripts.shadow_monitor import ShadowMonitor
     from scripts.wave_action_preview import WaveActionPreview
@@ -57,36 +42,19 @@ def run(profile, refit, keys, status, start_delay):
         fail("Explicit game title and class are required.")
     if settings.ABILITY_KEY.lower() != "f":
         fail("This test requires the calibrated F binding.")
-    wave = Calibration.from_video(args.wave_reference, 55., 80., 285., 56., 255., 260.)
-    post = PostMatchDetector.from_recording(args.screen_reference)
+    bundle = HERE / BUNDLE_RELATIVE
+    if not bundle.is_file():
+        fail(f"Missing recognition bundle: {bundle}. Run scripts.wave_templates once or install the packaged bundle.")
+    try:
+        wave, post, hero_refs = load_bundle(bundle)
+    except Exception as exc:
+        fail(f"Invalid recognition bundle: {bundle}: {exc}")
+    app_log(f"Loaded 19 recognition templates from {bundle}")
     monitor = ShadowMonitor(None, detector=lambda d, _: d)
     preview = WaveActionPreview()
 
-    # Hero confirmation uses the user's recorded hero-selection screen.
-    # The name and button are separate fixed crops; the mode is checked
-    # independently by PostMatchDetector. CANCEL proves the button changed.
-    boxes = {"thor": (40, 665, 170, 720),
-             "confirm": (1638, 715, 1732, 744),
-             "cancel": (1638, 715, 1732, 744)}
-    def crop(image, name):
-        x, y, x2, y2 = boxes[name]
-        return cv2.cvtColor(image[y:y2, x:x2], cv2.COLOR_BGR2GRAY)
-    hero_refs = {}
-    cap = cv2.VideoCapture(str(args.screen_reference))
-    try:
-        for name, seconds in (("thor", 61), ("confirm", 61), ("cancel", 65)):
-            if not cap.set(cv2.CAP_PROP_POS_MSEC, seconds * 1000):
-                fail("Cannot seek hero reference.")
-            ok, image = cap.read()
-            if not ok or image.shape != (1080, 1920, 3):
-                fail("Cannot read 1920x1080 hero reference.")
-            hero_refs[name] = crop(image, name)
-            if float(hero_refs[name].std()) < 8:
-                fail("Invalid hero reference contrast.")
-    finally:
-        cap.release()
     def hero_score(image, name):
-        value = float(cv2.matchTemplate(crop(image, name), hero_refs[name],
+        value = float(cv2.matchTemplate(hero_crop(image, name), hero_refs[name],
                                         cv2.TM_CCOEFF_NORMED)[0, 0])
         return value if np.isfinite(value) else -1.
     # Use the original selected profile and its scaled templates.
