@@ -16,7 +16,9 @@ MARKERS = {
     "mvp": (31, (1540, 875, 1900, 1005)),
     "victory_header": (40, (35, 25, 340, 105)),
     "acquired": (40, (1090, 270, 1310, 305)),
-    "summary": (45, (1780, 1028, 1910, 1065)),
+    # The old bottom-right navigation crop also matched progression.
+    # Require the distinctive final-summary label, not the shared Back prompt.
+    "summary": (45, (1605, 932, 1822, 965)),
     "match_found": (50, (500, 450, 1450, 650)),
     "map_title": (55, (680, 370, 1240, 580)),
     "hero_mode": (61, (0, 43, 510, 91)),
