@@ -79,6 +79,18 @@ class ImageFixtureTests(unittest.TestCase):
         frame[y0:y1, x0:x1] = self.templates["shop"][:, :, None]
         self.assertEqual(self.detector.classify(frame).screen, "blessing_shop")
 
+    def test_final_summary_requires_distinctive_crop(self):
+        frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        _, (x0, y0, x1, y1) = MARKERS["victory_header"]
+        frame[y0:y1, x0:x1] = self.templates["victory_header"][:, :, None]
+        # A populated legacy navigation crop must not identify final summary.
+        rng = np.random.default_rng(7)
+        frame[1028:1065, 1780:1910] = rng.integers(0, 256, (37, 130, 1), dtype=np.uint8)
+        self.assertEqual(self.detector.classify(frame).screen, "results")
+        _, (x0, y0, x1, y1) = MARKERS["summary"]
+        frame[y0:y1, x0:x1] = self.templates["summary"][:, :, None]
+        self.assertEqual(self.detector.classify(frame).screen, "final_summary")
+
     def test_blank_frame_unknown(self):
         self.assertEqual(self.detector.classify(np.zeros((1080, 1920, 3), dtype=np.uint8)).screen,
                          "unknown")
