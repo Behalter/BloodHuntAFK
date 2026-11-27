@@ -99,6 +99,9 @@ def run(profile, refit=None, keys=None, status=None, start_delay=5):
     loop waits for the game to be in front anyway)."""
     refit = refit or profile.fit
     status = status or Status()
+    if getattr(cfg, "WAVE_AWARE", False):
+        from . import wave_runtime
+        return wave_runtime.run(profile, refit, keys or winapi.Hotkeys(), status, start_delay)
     templates, clicks, ingame, stops, triggers = sort_templates(profile)
     if not clicks:
         sys.exit(f"No click_*.png templates in {rel(profile.templates_dir)} yet. "
