@@ -550,3 +550,55 @@ frame-level ground truth or a measured accuracy rate. No changes
 to code, thresholds, or live input handling. Windows unit-test
 baseline remains 89/89. Next: equivalent retrospective reports
 for the two earlier recordings using the same references.
+
+
+## Unified timeline replay — all three recordings and reliability review
+
+Directly read all six user-supplied CSV reports. Reconstructed segments
+from consecutive labels and the 2.5s gap rule; all 87 segments match
+exactly. The first and second recordings contain 211 and 294 samples,
+respectively, with strictly increasing timestamps and no gaps above
+2.5s. Combined results:
+
+| Metric | Clip 1 | Clip 2 | Clip 3 | Total |
+|---|---:|---:|---:|---:|
+| Samples | 211 | 294 | 125 | 630 |
+| Segments | 23 | 39 | 25 | 87 |
+| Non-unknown | 201 | 264 | 114 | 579 |
+| Unknown | 10 | 30 | 11 | 51 |
+| Classifier disagreements | 0 | 0 | 0 | 0 |
+| Unresolved screen markers | 0 | 5 | 0 | 5 |
+| Blessing Shop | 0 | 16 | 5 | 21 |
+| Non-gameplay visible Rune violations | 0 | 0 | 0 | 0 |
+
+Recognition coverage 91.9%, not accuracy. Both full recordings have
+five distinct combat segments and five preparation intervals (clip 2
+preparation intervals interrupted by shop overlays). All 21 shop rows
+have raw phase preparation and raw Rune unknown. All 223 non-gameplay
+rows have visible Rune unknown. Clip 2's five unresolved markers are
+summary-only hits at 0–4s; nearby video frames show the lobby, not
+final results. The conservative rule correctly leaves them unknown.
+
+Targeted visual review using FFmpeg frames at/just after report
+timestamps identified additional classification limitations. Clip 1
+205.011s is labeled final_summary (summary and victory_header markers)
+but nearby footage shows the acquired-gear progression screen with
+HOLD TO SKIP, not the final summary. At 204.030s the MVP label also
+persists into the progression transition in nearby footage. Clip 1
+209.002s, clip 2 290.028s, and clip 3 44.029s show the final scene
+before ONE MORE ROUND is visibly presented. Clip 3 at 51–52s visibly
+shows MATCH FOUND despite generic results labels. Two requested
+end-of-recording final-summary frame extractions returned no image;
+this was a targeted review, not exhaustive frame-level ground truth.
+The current summary marker is a fixed bottom-right crop and does
+not uniquely establish final-summary identity. Zero disagreements
+does not imply zero errors: classifiers can agree on an incorrect
+label. Retain uncertainty; any future offline classifier refinement
+should distinguish progression from final summary using independent
+visual evidence and add regression fixtures for these cases.
+
+Disposition: retrospective CSV workflow and structural validation
+passed on all three recordings; visual classification is provisional.
+No live input delivery, live post-match recognition, button
+availability, or autonomous match operation has been validated.
+No code changes in this review. Windows unit baseline 89/89.
