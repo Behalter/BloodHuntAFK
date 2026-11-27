@@ -518,3 +518,35 @@ contiguous observed labels; it does not interpolate unknown frames.
 This is a unit-test baseline, not an end-to-end video replay result.
 The full Windows CLI replay remains to be validated. No live input
 handling or existing classifier threshold changes were made.
+
+
+## Unified timeline replay — third recording
+
+User executed the Windows CLI against clip_1,795,724,137,367.mp4,
+using the second clip as wave reference and the third as screen
+reference, default 1 Hz. The supplied lifecycle_samples.csv and
+lifecycle_segments.csv were read and checked directly.
+
+125 samples, 25 segments; all 25 segments exactly reconstructed
+from the sample CSV using the 2.5s gap rule. Sample gaps 0.972466
+to 1.005999s. 114 recognized (91.2% coverage), 11 unknown,
+zero classifier_disagreement or unresolved_screen_markers rows.
+Counts: 21 preparation, 33 combat, 10 match_ending, 5 blessing_shop,
+3 victory_banner, 8 mvp, 1 progression, 6 results, 5 final_summary,
+1 match_found, 2 map_loading, 19 hero_selection, 11 unknown.
+All 71 non-gameplay rows have visible_rune unknown; all five shop
+rows have raw_phase preparation and raw_rune unknown. Preparation
+Rune counts ready 13, active 5, cooldown 3; combat ready 1,
+active 30, cooldown 2.
+
+Match Found at 50.031694s is followed by generic results at
+51.004160 and 52.010159s, with only the victory_header marker
+and raw wave phase unknown. This preserves the previously noted
+per-frame ambiguity; it does not establish a backward lifecycle
+transition. Map loading at 55–56s is followed by unknown at 57–59s
+and hero selection at 60–78s. Unknowns are not interpolated.
+Structural report validation passed; this is not independent
+frame-level ground truth or a measured accuracy rate. No changes
+to code, thresholds, or live input handling. Windows unit-test
+baseline remains 89/89. Next: equivalent retrospective reports
+for the two earlier recordings using the same references.
