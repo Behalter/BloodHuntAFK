@@ -241,6 +241,25 @@ def keytest():
           "If it still doesn't, the game is ignoring simulated input and this approach won't work.")
 
 
+def wave_check():
+    """Offline packaging check: imports and recognition data, no capture or input."""
+    from .common import HERE, FROZEN
+    from .wave_runtime import run as wave_run
+    from .wave_state import Phase, Rune
+    from scripts.analyze_video import detect, normalize
+    from scripts.wave_templates import BUNDLE_RELATIVE, load_bundle, hero_crop, arrays
+    from scripts.lifecycle_timeline import TimelineRow, combine
+    from scripts.shadow_monitor import ShadowMonitor
+    from scripts.wave_action_preview import WaveActionPreview
+    from scripts.pause_recovery import ResumeGate, pending_reconciled
+
+    bundle = HERE / BUNDLE_RELATIVE
+    wave, post, hero = load_bundle(bundle)
+    count = len(arrays(wave, post, hero)) - 1
+    print(f"PASS: {'Frozen executable' if FROZEN else 'Source'} wave runtime imports and {count} recognition templates.")
+    print(f"Bundle: {bundle}")
+
+
 # ── Command line ────────────────────────────────────────────────────────────
 def take_profile_arg(args):
     """Pull `--profile NAME` (or --profile=NAME) out of args -> (NAME or None, remaining args)."""
@@ -292,6 +311,8 @@ def main(help_text):
             guided_crop(name)
         elif cmd == "check":
             check(args[1] if len(args) > 1 else None, name)
+        elif cmd == "wave-check":
+            wave_check()
         elif cmd == "keytest":
             keytest()
         elif cmd == "routine":
