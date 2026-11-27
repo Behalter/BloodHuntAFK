@@ -2,6 +2,8 @@
 
 No mouse input, matchmaking, healing, inventory routines, refocusing, or
 retries. Operator starts the match and handles menus. F8/F10 stop permanently.
+After combat input is disabled, observe closeout read-only for up to 60 seconds;
+never rearm in the same process.
 Requires explicit opt-in; never use in an unauthorized game environment.
 """
 import argparse
@@ -59,7 +61,8 @@ def main(argv=None):
     print("Authorized supervised test only. F8/F10 stop; Alt+Tab aborts after focus lock.")
     print("Switch to the authorized game window within 10 seconds. Start the match manually.")
     print("The test arms only after two preparation/ready observations.")
-    print("Handle shop selections manually; do not press F while armed.", flush=True)
+    print("Handle shop selections manually; do not press F while armed.")
+    print("After victory, advance with Space manually; stop at ONE MORE ROUND.", flush=True)
     if not wait(10):
         print("Stopped before arming. No input sent.")
         return
@@ -78,6 +81,11 @@ def main(argv=None):
     pending = None
     last = None
     uncertain_since = None
+    closeout_since = None
+    closeout_previous = None
+    summary_streak = 0
+    victory_streak = 0
+    victory_observed = False
     attempts = acknowledged = 0
     outcome = "ABORTED: time limit reached."
     try:
@@ -141,32 +149,70 @@ def main(argv=None):
                             break
                         continue
 
-                if (d.phase in (Phase.MATCH_ENDING, Phase.POST_MATCH)
-                        or p.screen in {"victory_banner", "mvp", "progression", "results", "final_summary"}):
-                    outcome = "STOPPED: match ending/results observed; no further input."
-                    break
-                if row.reason in {"classifier_disagreement", "unresolved_screen_markers"}:
-                    outcome = "ABORTED: conflicting or unresolved screen evidence."
-                    break
-                if row.screen not in {"preparation", "combat", "unknown", "blessing_shop"}:
-                    outcome = "ABORTED: unexpected lifecycle screen."
-                    break
+                # Closeout is a one-way latch. No input path can be reached
+                # after it is set, even if the combat HUD reappears.
+                valid = row.screen in {"preparation", "combat"} and row.visible_rune != "unknown"
+                if closeout_since is None:
+                    reason = None
+                    if (d.phase in (Phase.MATCH_ENDING, Phase.POST_MATCH)
+                            or p.screen in {"victory_banner", "mvp", "progression", "results", "final_summary"}):
+                        reason = "match ending/results evidence"
+                    elif row.reason in {"classifier_disagreement", "unresolved_screen_markers"}:
+                        outcome = "ABORTED: conflicting or unresolved screen evidence."
+                        break
+                    elif row.screen not in {"preparation", "combat", "unknown", "blessing_shop"}:
+                        outcome = "ABORTED: unexpected lifecycle screen."
+                        break
+                    elif row.screen == "blessing_shop" or valid:
+                        uncertain_since = None
+                    elif uncertain_since is None:
+                        uncertain_since = tick
+                    elif tick - uncertain_since >= 3:
+                        reason = "HUD uncertain for three seconds"
+                    if reason is not None:
+                        closeout_since = tick
+                        log("", "input_disabled", reason + "; read-only closeout")
+                        if pending is not None:
+                            log(pending[0], "unacknowledged", "input disabled before acknowledgement")
+                            pending = None
+
+                if closeout_since is not None:
+                    if row.screen != closeout_previous:
+                        log("", "closeout", row.screen)
+                        closeout_previous = row.screen
+                    victory_frame = (row.screen == "victory_banner" or
+                                     (row.screen in {"progression", "results", "final_summary"}
+                                      and "victory_header" in p.markers))
+                    victory_streak = victory_streak + 1 if victory_frame else 0
+                    if victory_streak >= 2 and not victory_observed:
+                        victory_observed = True
+                        log("", "victory_seen", "two consecutive positive victory observations")
+                    summary_frame = (row.screen == "final_summary"
+                                     and "victory_header" in p.markers
+                                     and "summary" in p.markers)
+                    summary_streak = summary_streak + 1 if summary_frame else 0
+                    if summary_streak >= 2 and victory_observed:
+                        outcome = ("COMPLETE: victory and final summary observed; input disabled."
+                                   if attempts == acknowledged else
+                                   "COMPLETE: victory observed, but not all input attempts acknowledged.")
+                        break
+                    if row.screen in {"match_found", "map_loading", "hero_selection"}:
+                        outcome = "STOPPED: subsequent match screen observed; no rearming."
+                        break
+                    if tick - closeout_since >= 60:
+                        outcome = ("STOPPED: victory observed; final summary not confirmed."
+                                   if victory_observed else
+                                   "STOPPED: closeout timeout; victory not confirmed.")
+                        break
+                    if not wait(max(0, 0.5 - (time.monotonic() - tick))):
+                        outcome = "ABORTED: operator stop."
+                        break
+                    continue
 
                 # Mask overlays and uncertain frames before the existing advisor.
-                valid = row.screen in {"preparation", "combat"} and row.visible_rune != "unknown"
                 masked = d if valid else replace(d, phase=Phase.UNKNOWN, rune=Rune.UNKNOWN)
                 sample = monitor.feed(now, masked)
                 proposals = preview.observe(sample)
-                if row.screen == "blessing_shop":
-                    uncertain_since = None
-                elif not valid:
-                    if uncertain_since is None:
-                        uncertain_since = tick
-                    elif tick - uncertain_since >= 3:
-                        outcome = "ABORTED: HUD uncertain for three seconds."
-                        break
-                else:
-                    uncertain_since = None
 
                 if pending is not None:
                     intent, phase, before, expected, deadline, streak = pending
