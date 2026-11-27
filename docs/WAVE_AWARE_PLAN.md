@@ -503,3 +503,18 @@ Final summary is not evidence of button availability. No changes
 to classifier thresholds or production code in this increment.
 The next read-only review should preserve these uncertainties
 and distinguish raw frame labels from a retrospective timeline.
+
+
+## Unified timeline regression baseline
+
+The user downloaded lifecycle_timeline.py (commit
+5eafe705e615ae03db1a13b459331a4164c96487) and its 12 tests
+(commit 39563d73c0d90caaca61d14854e511481c086887).
+Windows unittest discovery returned **89/89 passed in 0.349s**.
+The retrospective report combines raw wave and screen observations,
+preserves unknown/conflicting observations and masks the displayed Rune
+state when an overlay is identified. The segment report groups only
+contiguous observed labels; it does not interpolate unknown frames.
+This is a unit-test baseline, not an end-to-end video replay result.
+The full Windows CLI replay remains to be validated. No live input
+handling or existing classifier threshold changes were made.
