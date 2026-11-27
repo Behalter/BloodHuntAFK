@@ -622,3 +622,30 @@ The normal completion path passed; real focus-loss and operator-stop
 paths still require separate local tests. The harness checks focus
 before sending but cannot make the check and input delivery atomic.
 No changes to existing runtime bot modules in this validation.
+
+
+## Local abort checks and initial live lifecycle run
+
+User-reported Windows console output confirms both local diagnostic abort
+paths: Escape after the first activation acknowledgement produced
+"ABORTED: operator stop; no further input." A separate focus-loss run
+produced "ABORTED: local window lost focus; no further input." The latter
+occurred before the first reported acknowledgement. These messages
+validate the reported stop paths, not independent measurement of all
+possible input races.
+
+Standalone read-only monitor scripts/monitor_lifecycle.py (commit
+bc4042809aa463b9d7e5eda28f16f5bf3b18cff3) completed a user-reported
+two-match manual session with 1144 samples and 76 observed segments.
+The console log contains five preparation/combat groups per match,
+shop overlays, ending, victory banner, MVP, progression and final
+summary in both matches. First final_summary at 366.80s; second
+match_found at 373.31s, map_loading at 378.31s, hero_selection at
+386.82s, preparation at 403.33s; second final_summary at 643.98s.
+Transient unknown observations and results/summary/match_found
+label changes occurred. The monitor was stopped by the operator.
+This establishes successful execution and broad lifecycle recognition
+in the reported session, not frame-level accuracy or button readiness.
+The new live CSVs have not yet been inspected. No game input was sent
+by the monitor; actual game acceptance and autonomous operation remain
+unverified. No runtime bot modules changed.
