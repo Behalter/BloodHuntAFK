@@ -51,6 +51,18 @@ def run(profile, refit, keys, status, start_delay):
     except Exception as exc:
         fail(f"Invalid recognition bundle: {bundle}: {exc}")
     app_log(f"Loaded 19 recognition templates from {bundle}")
+    from scripts.chrono_detector import ChronoDetector
+    from scripts.chrono_flow import ChronoFlow, RewardLatch
+    chrono = None
+    if getattr(settings, "WAVE_CHRONO", False):
+        if 0x1B in {settings.PAUSE_KEY, settings.QUIT_KEY}:
+            fail("Chrono Rush requires Escape distinct from pause and stop.")
+        chrono_bundle = HERE / "profiles" / "16x9" / "chrono_templates.npz"
+        try:
+            chrono = ChronoDetector.load(chrono_bundle)
+        except Exception as exc:
+            fail(f"Invalid or missing Chrono Rush bundle: {chrono_bundle}: {exc}")
+        app_log(f"Chrono Rush collection enabled; loaded {chrono_bundle}")
     monitor = ShadowMonitor(None, detector=lambda d, _: d)
     preview = WaveActionPreview()
 
@@ -195,6 +207,8 @@ def run(profile, refit, keys, status, start_delay):
     last_replay_at = None
     summary_verified = False
     launch_intent = "replay"
+    chrono_latch = RewardLatch()
+    chrono_flow = None
     outcome = "STOPPED: MAX_HOURS reached."
     try:
         with (args.output / "samples.csv").open("x", newline="", encoding="utf-8") as sf, \
@@ -219,6 +233,10 @@ def run(profile, refit, keys, status, start_delay):
                     outcome = "ABORTED: operator stop."
                     break
                 if keys.paused:
+                    if chrono_flow is not None:
+                        outcome = "STOPPED: Chrono Rush sequence interrupted by pause; inspect current screen."
+                        break
+                    chrono_latch.streak = 0
                     log("", "paused", "operator pause; no input")
                     while not stop_requested() and not time_limit():
                         status.state = "paused" if keys.paused else "resume: waiting for game focus"
@@ -339,6 +357,83 @@ def run(profile, refit, keys, status, start_delay):
                     log("storage_full", "sequence_done", "waiting for next-match recognition")
                     return True
 
+                # A claim sequence owns menu input exclusively. Never fall
+                # through to replay, SPACE, smelting, or Rune input mid-sequence.
+                if chrono_flow is not None:
+                    if row.screen in {"preparation", "combat", "blessing_shop"}:
+                        outcome = "STOPPED: gameplay returned during Chrono Rush sequence."
+                        break
+                    obs = chrono.classify(frame)
+                    small = vision.shrink(frame)
+                    storage_hit = vision.best(small, [nav_templates["routine_storage_full"]])
+                    summary = (row.screen == "final_summary" and victory_observed
+                               and "victory_header" in p.markers and "summary" in p.markers
+                               and bool(vision.best(small, [nav_templates["click_one_more_round"]],
+                                                    skip_dimmed=True)))
+                    # If the warning appears before leaving the verified summary,
+                    # preserve the original smelt path. The reward stays unclaimed.
+                    if storage_hit and chrono_flow.stage == "summary":
+                        log("chrono", "deferred", "storage warning before departure; original smelt path")
+                        chrono_flow = None
+                        chrono_latch = RewardLatch()
+                        # Fall through to the existing closeout storage handling.
+                    else:
+                        was_verified = chrono_flow.claim_verified
+                        intent = chrono_flow.observe(
+                            tick, obs, summary=summary,
+                            next_match=row.screen in {"match_found", "map_loading", "hero_selection"},
+                            storage_warning=bool(storage_hit), solo_verified=obs.solo_verified)
+                        status.state = f"Chrono Rush: {chrono_flow.stage}"
+                        if chrono_flow.error:
+                            outcome = f"STOPPED: Chrono Rush {chrono_flow.error}."
+                            try:
+                                ok, encoded = cv2.imencode(".png", frame)
+                                if ok:
+                                    (args.output / "chrono_stop.png").write_bytes(encoded.tobytes())
+                            except Exception:
+                                pass
+                            break
+                        if chrono_flow.claim_verified and not was_verified:
+                            status.stats["chrono claims"] += 1
+                            log("claim_tokens", "acknowledged", "reward confirmation and zero balance observed")
+                        if intent:
+                            log(intent, "attempt", f"Chrono Rush; stage={chrono_flow.stage}")
+                            if intent in {"leave_summary", "leave_chrono"}:
+                                if (not safe_input()
+                                        or winapi.user32.GetAsyncKeyState(0x1B) & 0x8000):
+                                    outcome = "STOPPED: Chrono Rush Escape preflight failed."
+                                    break
+                                inputs.press("esc")
+                            else:
+                                point = {"open_chrono": (1100, 214),
+                                         "claim_tokens": (220, 571),
+                                         "start_match": (1125, 596)}[intent]
+                                if not click_local((round(point[0] * w / 1280),
+                                                    round(point[1] * h / 720))):
+                                    outcome = "STOPPED: Chrono Rush click preflight failed."
+                                    break
+                                status.stats["click_chrono"] += 1
+                            if intent == "leave_summary":
+                                completed += 1
+                                status.stats["victories"] += 1
+                                log("", "match_complete", "verified victory; Chrono Rush detour")
+                        if chrono_flow.stage == "done":
+                            log("chrono_start", "acknowledged", row.screen)
+                            chrono_flow = None
+                            launch_intent = "chrono_start"
+                            waiting_next = True
+                            next_since = tick
+                            replay_seen = True
+                            hero_verified = hero_attempted = False
+                            hero_streak = cancel_streak = prep_streak = 0
+                            last_replay_at = None
+                            # Existing next-match recognition handles this frame.
+                        else:
+                            if not wait(max(0, 0.5 - (time.monotonic() - tick))):
+                                outcome = "ABORTED: operator stop."
+                                break
+                            continue
+
                 # Only after a verified replay or storage routine. No F
                 # until the next match is positively recognized.
                 if waiting_next:
@@ -432,6 +527,8 @@ def run(profile, refit, keys, status, start_delay):
                         attempts = acknowledged = skip_count = nav_streak = 0
                         confirmed_cancels = 0
                         smelt_used = summary_verified = False
+                        chrono_latch = RewardLatch()
+                        chrono_flow = None
                         storage_streak = replay_clicks = 0
                         last_replay_at = None
                         launch_intent = "replay"
@@ -532,6 +629,13 @@ def run(profile, refit, keys, status, start_delay):
                     if victory_streak >= 2 and not victory_observed:
                         victory_observed = True
                         log("", "victory_seen", "two consecutive positive victory observations")
+                    if chrono is not None and not chrono_latch.available:
+                        eligible_card = (row.screen in {"progression", "results"}
+                                         and "victory_header" in p.markers
+                                         and d.phase not in {Phase.PREPARATION, Phase.COMBAT})
+                        card = chrono.classify(frame).card if eligible_card else "absent"
+                        if chrono_latch.observe(card, eligible_card):
+                            log("chrono", "available", "two positive reward-card observations")
                     summary_frame = (row.screen == "final_summary"
                                      and "victory_header" in p.markers
                                      and "summary" in p.markers)
@@ -557,6 +661,8 @@ def run(profile, refit, keys, status, start_delay):
                             outcome = "STOPPED: storage warning without verified match closeout."
                             break
                         if storage_streak >= 2:
+                            if chrono_latch.available:
+                                log("chrono", "deferred", "storage warning; original smelt path")
                             if not guarded_smelt():
                                 outcome = "STOPPED: smelting interrupted or unavailable; inspect gear screen."
                                 break
@@ -594,6 +700,13 @@ def run(profile, refit, keys, status, start_delay):
                         if not (all_confirmed or final_interrupted):
                             outcome = "STOPPED: victory observed but nonterminal Rune attempt unacknowledged."
                             break
+                        if chrono is not None and chrono_latch.available:
+                            chrono_flow = ChronoFlow(tick)
+                            log("chrono", "begin", "verified summary; exclusive collection sequence")
+                            if not wait(max(0, 0.5 - (time.monotonic() - tick))):
+                                outcome = "ABORTED: operator stop."
+                                break
+                            continue
                         t, score, pos = replay_hit
                         point = vision.click_point(t, pos, profile.click_at)
                         if not click_local(point):
