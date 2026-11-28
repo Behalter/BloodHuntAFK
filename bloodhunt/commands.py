@@ -258,6 +258,12 @@ def wave_check():
     count = len(arrays(wave, post, hero)) - 1
     print(f"PASS: {'Frozen executable' if FROZEN else 'Source'} wave runtime imports and {count} recognition templates.")
     print(f"Bundle: {bundle}")
+    from scripts.chrono_detector import ChronoDetector
+    from scripts.chrono_flow import ChronoFlow, RewardLatch
+    chrono_bundle = HERE / "profiles" / "16x9" / "chrono_templates.npz"
+    chrono = ChronoDetector.load(chrono_bundle)
+    print(f"PASS: Chrono Rush runtime imports and {len(chrono.templates)} recognition templates.")
+    print(f"Bundle: {chrono_bundle}")
 
 
 # ── Command line ────────────────────────────────────────────────────────────
