@@ -8,7 +8,7 @@ dist\BloodHuntAFK-<version>.zip. Run it from this folder:
 
 It installs the requirements and PyInstaller into .venv (made if missing). Only these go in the zip:
 settings.py, README.md, each profile's profile.json and templates\ (NAME.png + NAME.json),
-and the 16x9 wave_templates.npz recognition bundle.
+and the 16x9 wave_templates.npz and chrono_templates.npz recognition bundles.
 Never shots\, routines\, debug\ or bot.log: those show your in-game UID.
 GitHub Actions runs this same script for releases (.github\workflows\release.yml).
 #>
@@ -17,6 +17,8 @@ param([string]$Version = "", [switch]$NoAdmin)
 Set-Location $PSScriptRoot
 $waveBundle = "profiles\16x9\wave_templates.npz"
 if (-not (Test-Path $waveBundle -PathType Leaf)) { throw "Missing required wave recognition bundle: $waveBundle" }
+$chronoBundle = "profiles\16x9\chrono_templates.npz"
+if (-not (Test-Path $chronoBundle -PathType Leaf)) { throw "Missing required Chrono Rush recognition bundle: $chronoBundle" }
 $py = ".venv\Scripts\python.exe"
 if (-not (Test-Path $py)) {
     python -m venv .venv
@@ -50,6 +52,11 @@ foreach ($p in Get-ChildItem profiles -Directory) {
 Copy-Item $waveBundle "$out\profiles\16x9\wave_templates.npz" -ErrorAction Stop
 if ((Get-FileHash $waveBundle -Algorithm SHA256).Hash -ne (Get-FileHash "$out\profiles\16x9\wave_templates.npz" -Algorithm SHA256).Hash) {
     throw "Packaged wave recognition bundle differs from the source"
+}
+
+Copy-Item $chronoBundle "$out\profiles\16x9\chrono_templates.npz" -ErrorAction Stop
+if ((Get-FileHash $chronoBundle -Algorithm SHA256).Hash -ne (Get-FileHash "$out\profiles\16x9\chrono_templates.npz" -Algorithm SHA256).Hash) {
+    throw "Packaged Chrono Rush recognition bundle differs from the source"
 }
 
 $zip = "dist\BloodHuntAFK-$Version.zip"
