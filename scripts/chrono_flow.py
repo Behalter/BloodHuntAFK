@@ -46,6 +46,8 @@ class ChronoFlow:
         if not isfinite(now) or now < self.last:
             self.abort('invalid observation clock')
             return None
+        if now == self.last:
+            return None  # one observation per distinct capture timestamp
         if now - self.last > 2.5:
             self.abort('observation gap')
             return None
