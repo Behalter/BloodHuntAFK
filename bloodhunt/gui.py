@@ -42,9 +42,8 @@ LOG_LINES = 4000                    # the log box keeps this many lines (bot.log
 
 # The Settings tab: (box title, [(setting, label, unit)]). Everything else goes on the Advanced tab.
 MAIN = [
-    ("Wave-aware combat (authorized testing)", [
+    ("Wave-aware combat", [
         ("WAVE_AWARE", "Use wave-aware mode", ""),
-        ("WAVE_AUTHORIZED_TEST", "Authorized test environment", ""),
         ("WAVE_HEAL", "Enable experimental healing", ""),
     ]),
     ("Ability (Thor's Awakening Rune)", [
@@ -63,6 +62,9 @@ MAIN = [
         ("RUN_ROUTINES", "Smelt, then play on", ""),
         ("SMELT_RATING", "Smelt unlocked gear rated at or below", ""),
         ("BACKUP_ROUTINE_AFTER", "Smelt anyway after One more round", "clicks in a row (0 = never)"),
+    ]),
+    ("Chrono Rush (wave-aware mode)", [
+        ("WAVE_CHRONO", "Automatically claim available tokens", ""),
     ]),
     ("Run", [
         ("MAX_HOURS", "Stop after", "hours (0 = never)"),
@@ -550,7 +552,9 @@ class App:
                             self.fields[(n, key)] = f
                             row += 1
                     self.labels.setdefault(n, pretty(n))
-                elif self._field(self.adv_tab, box, row, s, pretty(n), UNITS.get(n, "")):
+                elif self._field(self.adv_tab, box, row, s,
+                                 "Authorized environment (saved confirmation)" if n == "WAVE_AUTHORIZED_TEST" else pretty(n),
+                                 UNITS.get(n, "")):
                     row += 1
         self._line_up()
 
@@ -629,6 +633,14 @@ class App:
             from scripts.wave_templates import BUNDLE_RELATIVE
             if not (HERE / BUNDLE_RELATIVE).is_file():
                 wrong("WAVE_AWARE", f"missing {BUNDLE_RELATIVE}")
+        if values.get("WAVE_CHRONO"):
+            if not values.get("WAVE_AWARE"):
+                wrong("WAVE_CHRONO", "requires wave-aware mode")
+            if not (HERE / "profiles" / "16x9" / "chrono_templates.npz").is_file():
+                wrong("WAVE_CHRONO", "missing Chrono Rush recognition bundle")
+            for key in ("PAUSE_KEY", "QUIT_KEY", "UNDO_KEY"):
+                if values.get(key) == 0x1B:
+                    wrong(key, "Chrono Rush uses Escape")
         if "F_DURATION" in values and "F_COOLDOWN" in values and values["F_DURATION"] + values["F_COOLDOWN"] <= 0:
             wrong("F_COOLDOWN", "lasts + cooldown must be more than 0")
         if values.get("ABILITY_KEY") and values.get("ABILITY_KEY") == values.get("HEAL_KEY"):
@@ -929,7 +941,8 @@ class App:
             self._set(self.lbl_counts, f"Matches {s.get('matches', 0)}   "
                                        f"{winapi.pretty_key(cfg.ABILITY_KEY)} {s.get('F presses', 0)}   "
                                        f"{winapi.pretty_key(cfg.HEAL_KEY)} {s.get('X presses', 0)}   Clicks {clicks}   "
-                                       f"Smelts {routines}   Running for {mins // 60} h {mins % 60:02d} min")
+                                       f"Smelts {routines}   Chrono claims {s.get('chrono claims', 0)}   "
+                                       f"Running for {mins // 60} h {mins % 60:02d} min")
             return
         if self.job == "keytest":
             text = "Key test: switch to the game now (in a match, somewhere safe)."
