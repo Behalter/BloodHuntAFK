@@ -20,6 +20,8 @@ REFERENCES = {
     'blood_hunt': (89, (991, 539, 1098, 567), 'light'),
     'nightmare': (89, (1036, 446, 1105, 463), 'gray'),
     'start': (89, (1095, 583, 1157, 609), 'gray'),
+    'team_solo': (89, (169, 87, 256, 111), 'gray'),
+    'autofill_off': (89, (963, 619, 998, 648), 'gray'),
 }
 
 
@@ -61,6 +63,7 @@ class Observation:
     lobby: bool
     reward_popup: bool
     scores: dict
+    solo_verified: bool = False
 
 
 class ChronoDetector:
@@ -118,4 +121,5 @@ class ChronoDetector:
                 event = 'uncertain'
         lobby = (fixed('lobby_event') >= .80 and fixed('blood_hunt') >= .80
                  and fixed('nightmare') >= .80 and fixed('start') >= .80)
-        return Observation(card, event, lobby, popup, scores)
+        solo = lobby and fixed('team_solo') >= .90 and fixed('autofill_off') >= .95
+        return Observation(card, event, lobby, popup, scores, solo)
