@@ -85,4 +85,4 @@ WAVE_REFERENCE = ""         # path to calibrated wave reference recording
 WAVE_SCREEN_REFERENCE = ""  # path to calibrated results and hero reference recording
 WAVE_HEAL = False           # optional healing during observed combat cooldown; experimental
 
-WAVE_CHRONO = False         # optional Chrono Rush collection; reserved until runtime integration is validated
+WAVE_CHRONO = False         # optionally collect available Chrono Rush rewards in wave-aware mode
