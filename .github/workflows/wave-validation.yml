@@ -1,0 +1,75 @@
+# Validation only. No game launch, input, tags or published release.
+name: Wave-aware Windows validation
+
+on:
+  push:
+    branches: ["feature/wave-aware-rune"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wave-aware-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw "venv failed" }
+          & .venv/Scripts/python.exe -m pip install -r requirements.txt -r requirements-build.txt
+          if ($LASTEXITCODE -ne 0) { throw "pip failed" }
+      - name: Compile and run all offline regressions
+        shell: pwsh
+        run: |
+          & .venv/Scripts/python.exe -m compileall -q bloodhunt scripts tests
+          if ($LASTEXITCODE -ne 0) { throw "compileall failed" }
+          & .venv/Scripts/python.exe -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw "regressions failed" }
+          & .venv/Scripts/python.exe BloodHuntAFK.py wave-check
+          if ($LASTEXITCODE -ne 0) { throw "source wave-check failed" }
+      - name: Build non-elevated validation executable
+        shell: pwsh
+        run: ./build.ps1 -Version wave-aware-1.3-validation -NoAdmin
+      - name: Check frozen recognition and settings upgrade
+        shell: pwsh
+        run: |
+          $out = Resolve-Path dist/BloodHuntAFK
+          $settings = Join-Path $out settings.py
+          $original = [IO.File]::ReadAllBytes($settings)
+          try {
+            # Exercise the actual frozen console's migration using a disposable fixture.
+            $legacy = "WAVE_AWARE = True`r`nWAVE_AUTHORIZED_TEST = True`r`nSMELT_RATING = 6500`r`nMAX_HOURS = 0`r`n"
+            [IO.File]::WriteAllText($settings, $legacy, [Text.UTF8Encoding]::new($false))
+            $p = Start-Process -FilePath (Join-Path $out BloodHuntAFK-console.exe) -ArgumentList "wave-check" -WorkingDirectory $out -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/wave-check.txt" -RedirectStandardError "$env:RUNNER_TEMP/wave-check-error.txt"
+            $report = Get-Content "$env:RUNNER_TEMP/wave-check.txt" -Raw
+            Write-Host $report
+            Get-Content "$env:RUNNER_TEMP/wave-check-error.txt"
+            if ($p.ExitCode -ne 0) { throw "Frozen wave-check failed: $($p.ExitCode)" }
+            if ($report -notmatch "19 recognition templates" -or $report -notmatch "12 recognition templates") { throw "Missing recognition check" }
+            $updated = [IO.File]::ReadAllText($settings)
+            if (-not $updated.StartsWith($legacy) -or $updated -notmatch "WAVE_CHRONO = False") { throw "Frozen settings migration failed" }
+          } finally {
+            [IO.File]::WriteAllBytes($settings, $original)
+          }
+          foreach ($bundle in @("wave_templates.npz", "chrono_templates.npz")) {
+            $src = Get-FileHash "profiles/16x9/$bundle" -Algorithm SHA256
+            $dst = Get-FileHash (Join-Path $out "profiles/16x9/$bundle") -Algorithm SHA256
+            if ($src.Hash -ne $dst.Hash) { throw "Bundle mismatch: $bundle" }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wave-aware-1.3-validation-no-admin
+          path: dist/BloodHuntAFK-wave-aware-1.3-validation.zip
+          if-no-files-found: error
+          retention-days: 7
