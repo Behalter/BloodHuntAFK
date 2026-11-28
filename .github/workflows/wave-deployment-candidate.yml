@@ -1,0 +1,75 @@
+# Administrator-enabled v1.3 deployment candidate, built from the wave-aware feature branch.
+# This is a downloadable test artifact, not a published release.
+name: Wave-aware 1.3 deployment candidate
+
+on:
+  push:
+    branches: ["feature/wave-aware-rune"]
+    paths:
+      - ".github/workflows/wave-deployment-candidate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wave-aware-deployment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Compile, regressions, and source recognition
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw "venv failed" }
+          & .venv/Scripts/python.exe -m pip install -r requirements.txt -r requirements-build.txt
+          if ($LASTEXITCODE -ne 0) { throw "pip failed" }
+          & .venv/Scripts/python.exe -m compileall -q bloodhunt scripts tests
+          if ($LASTEXITCODE -ne 0) { throw "compileall failed" }
+          & .venv/Scripts/python.exe -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw "regressions failed" }
+          & .venv/Scripts/python.exe BloodHuntAFK.py wave-check
+          if ($LASTEXITCODE -ne 0) { throw "source wave-check failed" }
+      - name: Build administrator-enabled candidate
+        shell: pwsh
+        run: ./build.ps1 -Version v1.3-rc1
+      - name: Verify candidate contents without executing elevated EXE
+        shell: pwsh
+        run: |
+          $out = "dist/BloodHuntAFK"
+          $zip = "dist/BloodHuntAFK-v1.3-rc1.zip"
+          if (-not (Test-Path $zip -PathType Leaf)) { throw "Missing deployment ZIP" }
+          foreach ($file in @("BloodHuntAFK.exe", "BloodHuntAFK-console.exe", "settings.py", "profiles/16x9/wave_templates.npz", "profiles/16x9/chrono_templates.npz")) {
+            if (-not (Test-Path (Join-Path $out $file) -PathType Leaf)) { throw "Missing $file" }
+          }
+          foreach ($bundle in @("wave_templates.npz", "chrono_templates.npz")) {
+            $src = (Get-FileHash "profiles/16x9/$bundle" -Algorithm SHA256).Hash
+            $dst = (Get-FileHash "$out/profiles/16x9/$bundle" -Algorithm SHA256).Hash
+            if ($src -ne $dst) { throw "Recognition bundle mismatch: $bundle" }
+          }
+          # PyInstaller writes the Windows UAC elevation bit to each EXE manifest.
+          Add-Type -AssemblyName System.IO.Compression
+          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip))
+          try {
+            foreach ($suffix in @("BloodHuntAFK.exe", "BloodHuntAFK-console.exe", "settings.py", "wave_templates.npz", "chrono_templates.npz")) {
+              if (-not ($archive.Entries | Where-Object { $_.FullName.Replace("\\","/").EndsWith("/$suffix") })) {
+                throw "Missing packaged ZIP entry: $suffix"
+              }
+            }
+          } finally { $archive.Dispose() }
+          Write-Host "Deployment ZIP and profile bundle hashes validated."
+      - name: Upload administrator-enabled candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: BloodHuntAFK-v1.3-rc1-admin
+          path: dist/BloodHuntAFK-v1.3-rc1.zip
+          if-no-files-found: error
+          retention-days: 14
