@@ -176,6 +176,46 @@ def read(path=None):
     return sections, settings
 
 
+def migrate_chrono_setting(path=None):
+    """Add the v1.3 opt-in to an older settings file, without changing existing values.
+
+    Explicit paths are supported for tests and upgrades. The file is parsed, never
+    executed. Preserve the original bytes, BOM and newline style.
+    """
+    import tempfile
+    path = Path(path or PATH)
+    try:
+        raw = path.read_bytes()
+        text = raw.decode("utf-8-sig").replace("\r\n", "\n")
+        _, settings = parse(text)
+        check_kinds(settings)
+        if "WAVE_CHRONO" in settings:
+            return False
+        newline = b"\r\n" if b"\r\n" in raw else b"\n"
+        addition = (b"WAVE_CHRONO = False  # optionally collect available Chrono Rush rewards"
+                    b" in wave-aware mode" + newline)
+        updated = raw + (b"" if raw.endswith(b"\n") else newline) + newline + addition
+        _, after = parse(updated.decode("utf-8-sig").replace("\r\n", "\n"))
+        check_kinds(after)
+        if after["WAVE_CHRONO"].value is not False:
+            raise SettingsError("Chrono Rush migration did not preserve the disabled default")
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + ".",
+                                             suffix=".tmp", delete=False) as f:
+                tmp = Path(f.name)
+                f.write(updated)
+            if path.read_bytes() != raw:
+                raise SettingsError("settings changed during migration; reopen the file")
+            os.replace(tmp, path)
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
+        return True
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SettingsError(f"can't migrate {path}: {exc}") from None
+
+
 def load(path=None):
     """Read settings.py and put its values into the settings module, which every other module reads
     (cfg.NAME, at the moment it's needed). A setting missing from the file gets its built-in value.
