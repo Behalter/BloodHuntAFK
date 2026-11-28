@@ -103,8 +103,54 @@ def run(profile, refit, keys, status, start_delay):
         status.state = "stopped"
         return
 
+    # Diagnostics only: never change focus or capture another application's window.
+    last_focus_failure = None
+
     def foreground():
-        return (winapi.user32.GetForegroundWindow() == hwnd and winapi.is_game(hwnd))
+        nonlocal last_focus_failure
+        current = winapi.user32.GetForegroundWindow()
+        if current == hwnd and winapi.is_game(hwnd):
+            return True
+        observed_at = time.monotonic()
+        details = f"expected_hwnd={hwnd}; observed_hwnd={current}"
+        try:
+            import ctypes
+            from ctypes import wintypes
+            from ntpath import basename
+            pid = wintypes.DWORD()
+            get_pid = winapi.user32.GetWindowThreadProcessId
+            get_pid.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+            get_pid.restype = wintypes.DWORD
+            if current:
+                get_pid(current, ctypes.byref(pid))
+            _, cls = winapi.window_info(current)
+            details += f"; class={cls!r}; pid={pid.value}"
+            # Do not log window titles or full executable paths.
+            kernel = ctypes.windll.kernel32
+            open_process = kernel.OpenProcess
+            open_process.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            open_process.restype = wintypes.HANDLE
+            query = kernel.QueryFullProcessImageNameW
+            query.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                              ctypes.POINTER(wintypes.DWORD)]
+            query.restype = wintypes.BOOL
+            close = kernel.CloseHandle
+            close.argtypes = [wintypes.HANDLE]
+            close.restype = wintypes.BOOL
+            handle = open_process(0x1000, False, pid.value) if pid.value else None
+            if handle:
+                try:
+                    buf = ctypes.create_unicode_buffer(32768)
+                    size = wintypes.DWORD(len(buf))
+                    if query(handle, 0, buf, ctypes.byref(size)):
+                        details += f"; exe={basename(buf.value)!r}"
+                finally:
+                    close(handle)
+            details += f"; same_handle={current == hwnd}"
+        except Exception as exc:
+            details += f"; diagnostic_error={type(exc).__name__}"
+        last_focus_failure = (observed_at, details)
+        return False
 
     screen = vision.Screen()
     start = time.monotonic()
@@ -612,6 +658,19 @@ def run(profile, refit, keys, status, start_delay):
                 # A pending tap is never repeated merely because it was paused.
                 if recovery is not None:
                     if tick - recovery_since >= 30:
+                        if recovery_origin == "hud":
+                            # Save only the already captured and classified game
+                            # frame, not a new screenshot of the desktop.
+                            try:
+                                ok, encoded = cv2.imencode(".png", frame)
+                                if ok:
+                                    snapshot = args.output / "hud_timeout.png"
+                                    snapshot.write_bytes(encoded.tobytes())
+                                    log("", "hud_diagnostic", f"saved {snapshot.name}")
+                                else:
+                                    log("", "hud_diagnostic", "PNG encoding failed")
+                            except Exception as exc:
+                                log("", "hud_diagnostic", f"snapshot failed: {type(exc).__name__}")
                         outcome = ("STOPPED: HUD recovery not verified within 30 seconds."
                                    if recovery_origin == "hud" else
                                    "STOPPED: resume state not verified within 30 seconds.")
@@ -743,6 +802,11 @@ def run(profile, refit, keys, status, start_delay):
 
             if pending is not None:
                 log(pending[0], "unacknowledged", outcome)
+            if last_focus_failure is not None:
+                observed_at, details = last_focus_failure
+                age = time.monotonic() - observed_at
+                if age <= 5:
+                    log("", "focus_diagnostic", f"{details}; observation_age={age:.2f}s")
             log("", "terminated", outcome)
     except KeyboardInterrupt:
         outcome = "ABORTED: Ctrl+C."
