@@ -289,6 +289,8 @@ def load_settings():
     try:
         if settings_file.ensure_file():
             print(f"{rel(settings_file.PATH)} was missing, so the built-in one was put back.")
+        if settings_file.migrate_chrono_setting():
+            print("Added the optional Chrono Rush setting; existing settings preserved.")
         settings_file.load()
     except settings_file.SettingsError as e:
         sys.exit(f"Can't use {rel(settings_file.PATH)}: {e}")
