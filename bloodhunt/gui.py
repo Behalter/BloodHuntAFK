@@ -565,6 +565,8 @@ class App:
         try:
             if settings_file.ensure_file():
                 self._say(f"{settings_file.PATH.name} was missing, so the built-in one was put back.\n")
+            if settings_file.migrate_chrono_setting():
+                self._say("Added the optional Chrono Rush setting; existing settings preserved.\n")
             self.sections, self.settings = settings_file.load()
             self.settings_error = None
         except settings_file.SettingsError as e:
